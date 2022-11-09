@@ -92,6 +92,26 @@ impl Catagory {
     }
 }
 
+impl fmt::Display for Catagory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Get the longest ID in all the fields
+        let mut padlen: usize = 0; 
+
+        for field in &self.fields {
+            padlen = cmp::max(padlen, field.id.len());
+        }
+        
+        let mut out: String = format!("CATAGORY {}:", self.id);
+
+        for field in &self.fields {
+            out.push_str(format!("\n    {}:{foo: >padlen$} {}", field.id, field.sql_type(), padlen = padlen-field.id.len(), foo="").as_str());
+        }
+
+        write!(f, "{}", out)
+    }
+
+}
+
 /// Fields for entries
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntryField {
@@ -191,6 +211,10 @@ pub struct Db {
 }
 
 impl Db {
+    pub fn init() -> Self {
+        Self::_new_test()
+    }
+
     pub fn _new_test() -> Self {
         let connection = Connection::open_in_memory().unwrap();
 
@@ -372,6 +396,23 @@ impl Db {
         self.query_to_entry(&query, &catagory)
     }
 
+    pub fn grab_next_available_key(&self, key: u64) -> Result<u64, Box<dyn Error>> {
+        let mut statement = self.connection.prepare("SELECT KEY FROM KEYS WHERE KEY = ?")?;
+
+        let mut key = key;
+
+        loop {
+            match statement.query_row(rusqlite::params![key], |_|{Ok(())}).optional()? {
+                Some(_) => {},
+                None => {break;}
+            }
+
+            key += 1
+        }
+
+        Ok(key)
+    }
+
     pub fn search_catagory(&self, catagory_id: &str, conditions: Vec<&str>) -> Result<Vec<Entry>, Box<dyn Error>> {
         let mut query = format!("SELECT * FROM {} WHERE ", catagory_id);
 
@@ -396,6 +437,25 @@ impl Db {
         self.query_to_entries(&query, catagory_id)
     }
 
+    pub fn fill_svg_template(&self, data: String) -> Result<String, Box<dyn Error>> {
+        let chunks: Vec<String> = data.split("FOO!").map(|chunk| chunk.to_owned()).collect();
+
+        let mut data = String::new();
+        let mut key: u16 = 0;
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            data.push_str(&chunk);
+
+            key = self.grab_next_available_key(key as u64)?.try_into()?;
+            if i < chunks.len() - 1 {
+                data.push_str(&base64::encode_config(key.to_be_bytes(), base64::STANDARD_NO_PAD));
+            }
+
+            key += 1
+        }
+
+        Ok(data)
+    }
     pub fn remove_key(&mut self, key: u64) -> Result<(), Box<dyn Error>> {
         let query = format!("DELETE FROM KEYS WHERE KEY={}", key);
 
