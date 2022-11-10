@@ -1,8 +1,11 @@
+use chrono::{Local, TimeZone};
 use rusqlite::{Connection, OptionalExtension, types::ValueRef};
 use simple_error::bail;
 use core::fmt;
-use std::{error::Error, cmp};
+use std::{error::Error, cmp, fmt::format, fs};
 use rusqlite::Error as SqlError;
+use directories::ProjectDirs;
+use crate::b64;
 
 /// Mapping to SQLite datatypes
 #[derive(Debug, Clone, PartialEq)]
@@ -33,7 +36,7 @@ impl CatagoryField {
     pub fn from_str(string: &str) -> Result<Self, Box<dyn Error>> {
         let split_str: Vec<&str> = string.split(":").collect();
 
-        // If the string was split more than once, or<F12><F12> not at all, we got a problem!
+        // If the string was split more than once, or not at all, we got a problem!
         if split_str.len() != 2 {
             bail!(r#"Invalid field definition "{}"!"#, string);
         }
@@ -155,13 +158,15 @@ pub struct Entry {
     pub key: u64,
     pub location: String,
     pub quantity: u64,
+    pub created: i64,
+    pub modified: i64,
     pub fields: Vec<EntryField>,
 }
 
 impl Entry {
     /// Create a new entry
     ///
-    pub fn new(catagory_id: &str, key: u64, location: &str, quantity: u64) -> Self {
+    pub fn new(catagory_id: &str, key: u64, location: &str, quantity: u64, created: i64, modified: i64) -> Self {
         let fields = Vec::new();
 
         Self {
@@ -169,6 +174,8 @@ impl Entry {
             key: key,
             location: location.to_owned(),
             quantity: quantity,
+            created: created,
+            modified: modified,
             fields: fields
         }
     }
@@ -189,10 +196,22 @@ impl fmt::Display for Entry {
         for field in &self.fields {
             padlen = cmp::max(padlen, field.id.len());
         }
-        
+
+        let created_str = Local.timestamp(self.created, 0).to_string();
+        let modified_str = Local.timestamp(self.modified, 0).to_string();
+
         let mut out: String = format!(r#"ENTRY {}, CATAGORY {}:
     LOCATION{foo: >padlen$} = '{}',
-    QUANTITY{foo: >padlen$} = {}"#, self.key, &self.catagory_id, &self.location, self.quantity, padlen = padlen-8, foo="");
+    QUANTITY{foo: >padlen$} = {},
+    CREATED {foo: >padlen$} = {},
+    MODIFIED{foo: >padlen$} = {}"#,
+    b64::from_u64(self.key),
+    &self.catagory_id,
+    &self.location,
+    self.quantity,
+    created_str,
+    modified_str,
+    padlen = padlen-8, foo="");
 
         for field in &self.fields {
             out.push_str(format!(",\n    {}{foo: >padlen$} = {}", field.id, field.value, padlen = padlen-field.id.len(), foo="").as_str());
@@ -212,7 +231,39 @@ pub struct Db {
 
 impl Db {
     pub fn init() -> Self {
-        Self::_new_test()
+        let qualifier = "org";
+        let organisation = "Open Ape Shop";
+        let application = "pinv";
+
+        let dirs = ProjectDirs::from(qualifier, organisation, application).unwrap();
+
+        let data_dir = dirs.data_dir().to_owned();
+
+        let mut db_filepath = data_dir.clone();
+        db_filepath.push("pinv.db3");
+
+        if !data_dir.exists() {
+            fs::create_dir_all(data_dir.as_path()).unwrap();
+        }
+
+        let connection = Connection::open(db_filepath).unwrap();
+
+        // Check to see if the keys table exists in the database...
+        
+        let query = "SELECT name FROM sqlite_master WHERE type='table' AND name='KEYS'";
+
+        match connection.query_row(query, [], |_| Ok(())).optional().unwrap() {
+            Some(_) => {}
+            None => {
+                let query = "CREATE TABLE KEYS (KEY INTEGER NOT NULL PRIMARY KEY, CATAGORY TEXT NOT NULL)";
+
+                connection.execute(query, []).unwrap();
+            }
+        }
+
+        Self {
+            connection: connection,
+        }
     }
 
     pub fn _new_test() -> Self {
@@ -259,7 +310,7 @@ impl Db {
         }
 
         // Otherwise, add the catagory to the database
-        let mut query = format!("CREATE TABLE {} (KEY INTEGER NOT NULL PRIMARY KEY, LOCATION TEXT NOT NULL, QUANTITY INTEGER NOT NULL,", catagory.id);
+        let mut query = format!("CREATE TABLE {} (KEY INTEGER NOT NULL PRIMARY KEY, LOCATION TEXT NOT NULL, QUANTITY INTEGER NOT NULL, CREATED INTEGER NOT NULL, MODIFIED INTEGER NOT NULL, ", catagory.id);
 
         for (i, field) in catagory.fields.iter().enumerate() {
             query.push_str(format!("{} {}", field.id, field.sql_type()).as_str());
@@ -279,8 +330,19 @@ impl Db {
     pub fn add_entry(&mut self, entry: Entry) -> Result<(), Box<dyn Error>> {
         self.add_key(entry.key, &entry.catagory_id)?;
 
-        let mut query_a = format!("INSERT INTO {} (KEY, LOCATION, QUANTITY, ", entry.catagory_id);
-        let mut query_b = format!(")\nVALUES ({}, '{}', {}, ", entry.key, entry.location, entry.quantity);
+        let mut query_a = format!(
+            "INSERT INTO {} (KEY, LOCATION, QUANTITY, CREATED, MODIFIED, ",
+            entry.catagory_id
+        );
+
+        let mut query_b = format!(
+            ")\nVALUES ({}, '{}', {}, {}, {}, ",
+            entry.key,
+            entry.location,
+            entry.quantity,
+            entry.created,
+            entry.modified
+        );
 
         for (i, field) in entry.fields.iter().enumerate() {
             query_a.push_str(field.id.as_str());
@@ -318,9 +380,16 @@ impl Db {
         }
 
         let entry: Entry = statement.query_row([], |row| {
-            let mut entry = Entry::new(catagory_id, row.get(0).unwrap(), (row.get::<usize, String>(1).unwrap()).as_str(), row.get(2).unwrap());
+            let mut entry = Entry::new(
+                catagory_id,
+                row.get(0).unwrap(),
+                (row.get::<usize, String>(1).unwrap()).as_str(),
+                row.get(2).unwrap(),
+                row.get(3).unwrap(),
+                row.get(4).unwrap()
+            );
 
-            let mut i: usize = 3;
+            let mut i: usize = 5;
             loop {
                 let value: String = match row.get_ref(i) {
                     Ok(result) => format!("{}", Self::sqlval_to_string(result)),
@@ -358,9 +427,16 @@ impl Db {
         let mut entries = Vec::<Entry>::new();
 
         while let Some(row) = rows.next()? {
-            let mut entry = Entry::new(catagory_id, row.get(0)?, (row.get::<usize, String>(1)?).as_str(), row.get(2)?);
+            let mut entry = Entry::new(
+                catagory_id,
+                row.get(0)?,
+                (row.get::<usize, String>(1)?).as_str(),
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?
+            );
 
-            let mut i: usize = 3;
+            let mut i: usize = 5;
             
             loop {
                 let value: String = match row.get_ref(i) {
@@ -441,14 +517,14 @@ impl Db {
         let chunks: Vec<String> = data.split("FOO!").map(|chunk| chunk.to_owned()).collect();
 
         let mut data = String::new();
-        let mut key: u16 = 0;
+        let mut key = 0;
 
         for (i, chunk) in chunks.iter().enumerate() {
             data.push_str(&chunk);
 
-            key = self.grab_next_available_key(key as u64)?.try_into()?;
+            key = self.grab_next_available_key(key)?;
             if i < chunks.len() - 1 {
-                data.push_str(&base64::encode_config(key.to_be_bytes(), base64::STANDARD_NO_PAD));
+                data.push_str(&b64::from_u64(key));
             }
 
             key += 1
@@ -676,6 +752,8 @@ mod tests {
             key: 0,
             location: "bazville".to_owned(),
             quantity: 10,
+            created: 0,
+            modified: 0,
             fields: vec![
                 EntryField{
                     id: "MPN".to_owned(),
@@ -728,6 +806,8 @@ mod tests {
             key: 1,
             location: "bazville".to_owned(),
             quantity: 2,
+            created: 0,
+            modified: 0,
             fields: vec![
                 EntryField{
                     id: "MPN".to_owned(),
@@ -780,6 +860,8 @@ mod tests {
             key: 2,
             location: "barville".to_owned(),
             quantity: 21,
+            created: 0,
+            modified: 0,
             fields: vec![
                 EntryField{
                     id: "MPN".to_owned(),
@@ -828,6 +910,8 @@ mod tests {
             key: 3,
             location: "barville".to_owned(),
             quantity: 100,
+            created: 0,
+            modified: 0,
             fields: vec![
                 EntryField{
                     id: "MPN".to_owned(),
@@ -927,7 +1011,7 @@ mod tests {
     // Test creating an entry
     #[test]
     fn test_db_new_entry() {
-        let mut entry = Entry::new("resistor", 0, "bazville", 10);
+        let mut entry = Entry::new("resistor", 0, "bazville", 10, 0, 0);
 
         entry.add_field(EntryField::from_str("mpn='ERJ-PM8F8204V'").unwrap());
         entry.add_field(EntryField::from_str("mfcd_by='Panasonic'").unwrap());
@@ -1017,9 +1101,11 @@ mod tests {
         //      ...
         //      {field_x_id} = {field_x_val}
         
-        let test_string: String = r#"ENTRY 0, CATAGORY RESISTOR:
+        let test_string: String = format!(r#"ENTRY 0, CATAGORY RESISTOR:
     LOCATION   = 'bazville',
     QUANTITY   = 10,
+    CREATED    = {time},
+    MODIFIED   = {time},
     MPN        = 'ERJ-PM8F8204V',
     MFCD_BY    = 'Panasonic',
     OHMS       = 8.2e6,
@@ -1029,7 +1115,8 @@ mod tests {
     TERM_STYLE = 'SMD',
     MAKEUP     = 'Thick Film',
     CASE_CODE  = '1206',
-    DATASHEET  = 'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'"#.to_owned();
+    DATASHEET  = 'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'"#,
+    time = Local.timestamp(0, 0).to_string());
 
         assert_eq!(test_string, format!("{}", test_entry_0()));
     }
