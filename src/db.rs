@@ -118,8 +118,8 @@ impl fmt::Display for Catagory {
 /// Fields for entries
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntryField {
-    id: String,
-    value: String,
+    pub id: String,
+    pub value: String,
 }
 
 impl EntryField {
@@ -345,12 +345,14 @@ impl Db {
         );
 
         for (i, field) in entry.fields.iter().enumerate() {
-            query_a.push_str(field.id.as_str());
-            query_b.push_str(field.get_sql().as_str());
+            if field.get_sql().len() > 0 {
+                query_a.push_str(field.id.as_str());
+                query_b.push_str(field.get_sql().as_str());
             
-            if i < entry.fields.len() - 1 {
-                query_a.push(',');
-                query_b.push(',');
+                if i < entry.fields.len() - 1 {
+                    query_a.push(',');
+                    query_b.push(',');
+                }
             }
         }
 
@@ -460,11 +462,27 @@ impl Db {
         Ok(entries)
     }
 
-    pub fn grab_entry(&self, key: u64) -> Result<Entry, Box<dyn Error>> {
+    pub fn grab_catagory_fields(&self, name: &str) -> Result<Vec<String>, Box<dyn Error>> {
+        let statement = self.connection.prepare(&format!("SELECT * FROM {}", name))?;
+        let mut column_names = Vec::<String>::new();
+
+        for name in statement.column_names() {
+            column_names.push(name.to_string())
+        }
+
+        Ok(column_names)
+    }
+
+    pub fn grab_catagory_from_key(&self, key: u64) -> Result<String, Box<dyn Error>> {
         // First we have to figure out which catagory it's in
         let query = format!("SELECT CATAGORY FROM KEYS WHERE KEY={}", key);
 
-        let catagory: String = self.connection.query_row(&query, [], |row| row.get(0))?;
+        Ok(self.connection.query_row(&query, [], |row| row.get(0))?)
+    }
+
+    pub fn grab_entry(&self, key: u64) -> Result<Entry, Box<dyn Error>> {
+        // First get the catagory the entry is in
+        let catagory = self.grab_catagory_from_key(key)?;
 
         // Next grab the entry from the catagory
         let query = format!("SELECT * FROM {} WHERE KEY={}", catagory, key);
@@ -487,6 +505,32 @@ impl Db {
         }
 
         Ok(key)
+    }
+
+    pub fn list_catagories(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let mut statement = self.connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name;")?;
+
+        let mut rows = statement.query([])?;
+
+        let mut names = Vec::<String>::new();
+
+        while let Some(row) = rows.next()? {
+            names.push(row.get(0)?);
+        }
+        
+        Ok(names)
+    }
+
+    pub fn delete_entry(&self, key: u64) -> Result<(), Box<dyn Error>> {
+        // First get the catagory the entry is in
+        let catagory = self.grab_catagory_from_key(key)?;
+
+        // Next delete the entry from the catagory
+        let query = format!("DELETE FROM {} WHERE KEY={}", catagory, key);
+
+        self.connection.execute(&query, [])?;
+        
+        Ok(())
     }
 
     pub fn search_catagory(&self, catagory_id: &str, conditions: Vec<&str>) -> Result<Vec<Entry>, Box<dyn Error>> {
@@ -540,6 +584,49 @@ impl Db {
         Ok(())
     }
 
+    pub fn mod_entry(&mut self, key: u64, fields: Vec<EntryField>) -> Result<(), Box<dyn Error>> {
+        // First get the catagory the entry is in
+        let catagory = self.grab_catagory_from_key(key)?;
+        let mod_time_string = Local::now().timestamp().to_string();
+
+        let mut fields_str = format!("MODIFIED={},", mod_time_string);
+
+        for (i, field) in fields.iter().enumerate() {
+            fields_str.push_str(&format!("{}={}", field.id, field.get_sql()));
+
+            if i < fields.len() - 1 {
+                fields_str.push(',')
+            }
+        }
+
+        // Next grab the entry from the catagory
+        let query = format!("UPDATE {} SET {} WHERE KEY={}", catagory, fields_str, key);
+
+        self.connection.execute(&query, [])?;
+
+        Ok(())
+    }
+
+    pub fn take(&mut self, key: u64, quantity: u64) -> Result<(), Box<dyn Error>> {
+        let entry = self.grab_entry(key)?;
+
+        if entry.quantity < quantity {
+            bail!("Tried to take more than the entry had! Has {}, try to take {}!", entry.quantity, quantity);
+        }
+
+        let field = EntryField::from_str(&format!("QUANTITY={}", entry.quantity - quantity))?;
+
+        self.mod_entry(key, vec![field])
+    }
+
+    pub fn give(&mut self, key: u64, quantity: u64) -> Result<(), Box<dyn Error>> {
+        let entry = self.grab_entry(key)?;
+
+        let field = EntryField::from_str(&format!("QUANTITY={}", entry.quantity + quantity))?;
+
+        self.mod_entry(key, vec![field])
+    }
+
     pub fn sqlval_to_string(value: ValueRef) -> String {
         match value {
             ValueRef::Null => "NULL".to_owned(),
@@ -552,7 +639,7 @@ impl Db {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     // This test uses two template catagories and two template entries per
     // catagory. The catagories are to represent real life scenarios in which
@@ -644,7 +731,7 @@ mod tests {
     //      DATASHEET   = 'https://www.mouser.com/datasheet/2/88/CDUB_S_A0011956908_1-2540249.pdf'
     
     // Return test catagory a, 'RESISTOR'
-    fn test_catagory_a() -> Catagory {
+    pub fn test_catagory_a() -> Catagory {
         Catagory {
             id: "RESISTOR".to_owned(),
             fields: vec![
@@ -693,7 +780,7 @@ mod tests {
     }
 
     // Return test catagory b, 'CAPACITOR'
-    fn test_catagory_b() -> Catagory {
+    pub fn test_catagory_b() -> Catagory {
         Catagory {
             id: "CAPACITOR".to_owned(),
             fields: vec![
@@ -746,7 +833,7 @@ mod tests {
     }
 
     // Test entry 0
-    fn test_entry_0() -> Entry {
+    pub fn test_entry_0() -> Entry {
         Entry {
             catagory_id: "RESISTOR".to_owned(),
             key: 0,
@@ -800,7 +887,7 @@ mod tests {
     }
 
     // Test entry 1
-    fn test_entry_1() -> Entry {
+    pub fn test_entry_1() -> Entry {
         Entry {
             catagory_id: "RESISTOR".to_owned(),
             key: 1,
@@ -854,7 +941,7 @@ mod tests {
     }
 
     // Test entry 2
-    fn test_entry_2() -> Entry {
+    pub fn test_entry_2() -> Entry {
         Entry {
             catagory_id: "CAPACITOR".to_owned(),
             key: 2,
@@ -904,7 +991,7 @@ mod tests {
     }
 
     // Test entry 3
-    fn test_entry_3() -> Entry {
+    pub fn test_entry_3() -> Entry {
         Entry {
             catagory_id: "CAPACITOR".to_owned(),
             key: 3,
@@ -1090,6 +1177,29 @@ mod tests {
     }
 
     #[test]
+    fn test_db_delete_by_key() {
+        let mut db = Db::_new_test();
+
+        // Should fail
+        db.delete_entry(0).unwrap_err();
+        // Add catagories and entries needed
+        db.add_catagory(test_catagory_a()).unwrap();
+        db.add_catagory(test_catagory_b()).unwrap();
+
+        // Should still fail
+        db.delete_entry(0).unwrap_err();
+
+        db.add_entry(test_entry_0()).unwrap();
+        db.add_entry(test_entry_1()).unwrap();
+
+        // Delete the first entry
+        db.delete_entry(0).unwrap();
+
+        // Try to grab it(should fail!)
+        db.grab_entry(0).unwrap_err();
+    }
+
+    #[test]
     fn test_db_format_entry() {
         // Entries should be formatted a certian way, alike the comments above
         //
@@ -1133,5 +1243,55 @@ mod tests {
         assert_eq!(db.search_catagory("RESISTOR", vec!["ohms=8.2e6"]).unwrap()[0], test_entry_0());
 
         assert_eq!(db.search_catagory("RESISTOR", vec!["makeup='Thick Film'", "makeup='Ceramic Comp'"]).unwrap(), vec![test_entry_0(), test_entry_1()]);
+    }
+
+    #[test]
+    fn test_db_get_catagory_fields() {
+        let mut db = Db::_new_test();
+
+        db.add_catagory(test_catagory_a()).unwrap();
+
+        assert_eq!(db.grab_catagory_fields("RESISTOR").unwrap(), vec![
+            "KEY",
+            "LOCATION",
+            "QUANTITY",
+            "CREATED",
+            "MODIFIED",
+            "MPN",
+            "MFCD_BY",
+            "OHMS",
+            "WATTS",
+            "TOLERANCE",
+            "PPM_C",
+            "TERM_STYLE",
+            "MAKEUP",
+            "CASE_CODE",
+            "DATASHEET"
+        ]);
+    }
+
+    #[test]
+    fn test_db_modify_entry() {
+        let mut db = Db::_new_test();
+
+        db.add_catagory(test_catagory_a()).unwrap();
+
+        db.add_entry(test_entry_0()).unwrap();
+
+        assert_eq!(db.grab_entry(0).unwrap(), test_entry_0());
+
+        db.mod_entry(0, vec![EntryField::from_str("quantity=9").unwrap()]).unwrap();
+
+        assert_eq!(db.grab_entry(0).unwrap().quantity, 9);
+
+        // Test taking and giving
+    
+        db.give(0, 1).unwrap();
+
+        assert_eq!(db.grab_entry(0).unwrap().quantity, 10);
+
+        db.take(0, 1).unwrap();
+
+        assert_eq!(db.grab_entry(0).unwrap().quantity, 9);
     }
 }

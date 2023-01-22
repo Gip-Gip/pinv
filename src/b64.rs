@@ -31,10 +31,9 @@ pub fn from_u64(num: u64) -> String {
 pub fn to_u64(string: &str) -> u64 {
     let mut pow = 1;
     let mut out: u64 = 0;
-    let mut table_iter = TABLE.iter();
 
-    for digit in string.chars().rev() {
-        let digit_val = table_iter.position(|x| x==&digit).unwrap();
+    for digit in string.trim().chars().rev() {
+        let digit_val = TABLE.iter().position(|x| x==&digit).unwrap();
 
         out += (digit_val as u64) * pow;
 
