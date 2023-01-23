@@ -508,7 +508,8 @@ impl Db {
     }
 
     pub fn list_catagories(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        let mut statement = self.connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name;")?;
+        // Select all tables excluding the keys table
+        let mut statement = self.connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name!='KEYS' ORDER BY name;")?;
 
         let mut rows = statement.query([])?;
 
@@ -519,6 +520,22 @@ impl Db {
         }
         
         Ok(names)
+    }
+
+    pub fn stat_catagories(&self) -> Result<Vec<Vec<String>>, Box<dyn Error>> {
+        let catagories = self.list_catagories()?;
+
+        let mut catagory_table = Vec::<Vec<String>>::with_capacity(catagories.len());
+
+        for catagory in catagories {
+            let count: usize = self.connection.query_row(&format!("SELECT COUNT(*) FROM {}", catagory), [], |row| row.get(0))?;
+
+            let catagory_row = vec![catagory, count.to_string()];
+
+            catagory_table.push(catagory_row);
+        }
+
+        Ok(catagory_table)
     }
 
     pub fn delete_entry(&self, key: u64) -> Result<(), Box<dyn Error>> {

@@ -21,17 +21,6 @@ fn confirm() -> bool {
     false
 }
 
-fn print_as_table(db: &Db, entries: Vec<Entry>) -> Result<(), Box<dyn Error>> {
-    // Get the catagory from the first entry
-    let catagory_id = entries[0].catagory_id.clone();
-    // Get the fields
-    let fields = db.grab_catagory_fields(&catagory_id);
-
-    // Note: First 5 fields are always the same and stored directly in the entries struct
-
-    todo!()
-}
-
 fn main() {
     let mut db = Db::init();
 
