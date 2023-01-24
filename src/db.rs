@@ -331,12 +331,12 @@ impl Db {
         self.add_key(entry.key, &entry.catagory_id)?;
 
         let mut query_a = format!(
-            "INSERT INTO {} (KEY, LOCATION, QUANTITY, CREATED, MODIFIED, ",
+            "INSERT INTO {} (KEY, LOCATION, QUANTITY, CREATED, MODIFIED",
             entry.catagory_id
         );
 
         let mut query_b = format!(
-            ")\nVALUES ({}, '{}', {}, {}, {}, ",
+            ")\nVALUES ({}, '{}', {}, {}, {}",
             entry.key,
             entry.location,
             entry.quantity,
@@ -344,15 +344,12 @@ impl Db {
             entry.modified
         );
 
-        for (i, field) in entry.fields.iter().enumerate() {
+        for field in entry.fields {
             if field.get_sql().len() > 0 {
+                query_a.push(',');
+                query_b.push(',');
                 query_a.push_str(field.id.as_str());
                 query_b.push_str(field.get_sql().as_str());
-            
-                if i < entry.fields.len() - 1 {
-                    query_a.push(',');
-                    query_b.push(',');
-                }
             }
         }
 
@@ -538,15 +535,17 @@ impl Db {
         Ok(catagory_table)
     }
 
-    pub fn delete_entry(&self, key: u64) -> Result<(), Box<dyn Error>> {
-        // First get the catagory the entry is in
+    pub fn delete_entry(&mut self, key: u64) -> Result<(), Box<dyn Error>> {
+        // First, get the catagory the entry is in
         let catagory = self.grab_catagory_from_key(key)?;
 
         // Next delete the entry from the catagory
         let query = format!("DELETE FROM {} WHERE KEY={}", catagory, key);
 
         self.connection.execute(&query, [])?;
-        
+
+        // Delete the key
+        self.remove_key(key).unwrap();
         Ok(())
     }
 

@@ -24,12 +24,6 @@ fn confirm() -> bool {
 fn main() {
     let mut db = Db::init();
 
-    let mut tui = Tui::new(db).unwrap();
-
-    tui.run();
-
-    return;
-
     let matches = command!()
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -68,9 +62,17 @@ fn main() {
         .subcommand(Command::new("fill_template").args(&[
             arg!([IN] "template file").required(true),
             arg!(-o --out <FILE> "output file").required(true),
-        ])).get_matches();
+        ]))
+        .subcommand(Command::new("tui")).get_matches();
 
     match matches.subcommand() {
+        Some(("tui", _)) => {
+            let mut tui = Tui::new(db).unwrap();
+
+            tui.run();
+
+            return;
+        }
         Some(("add", matches)) => {
             let key = b64::to_u64(matches.get_one::<String>("key").unwrap().as_str());
             let catagory = matches.get_one::<String>("catagory").unwrap();

@@ -13,7 +13,7 @@ pub fn from_u64(num: u64) -> String {
     let mut i = 64;
 
     if num == 0 {
-        out = "0".to_owned();
+        return "0".to_string();
     }
 
     while num > 0 {
