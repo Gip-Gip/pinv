@@ -17,6 +17,18 @@ pub enum DataType {
     BLOB,
 }
 
+impl DataType {
+    pub fn get_char(&self) -> char {
+        match self { 
+            Self::NULL => 'n',
+            Self::INTEGER => 'i',
+            Self::REAL => 'r',
+            Self::TEXT => 't',
+            Self::BLOB => 'b'
+        }
+    }
+}
+
 pub enum SQLValue {
     NULL,
     INTEGER(u64),
@@ -84,6 +96,13 @@ impl Catagory {
     pub fn new(id: &str) -> Self {
         let fields = Vec::new();
 
+        Self {
+            id: id.to_owned().to_uppercase(), // Make it case insensitive by converting the id to uppercase
+            fields: fields,
+        }
+    }
+
+    pub fn with_fields(id: &str, fields: Vec<CatagoryField>) -> Self {
         Self {
             id: id.to_owned().to_uppercase(), // Make it case insensitive by converting the id to uppercase
             fields: fields,
@@ -468,6 +487,24 @@ impl Db {
         }
 
         Ok(column_names)
+    }
+
+    pub fn grab_catagory_types(&self, name: &str) -> Result<Vec<char>, Box<dyn Error>> {
+        let mut statement = self.connection.prepare(&format!("PRAGMA table_info({})", name))?;
+
+        let mut rows = statement.query([])?;
+        let mut types = Vec::<char>::new();
+
+        while let Some(row) = rows.next()? {
+            let type_str: String = row.get(2)?;
+            match type_str.as_str() {
+                "INTEGER" => types.push('i'),
+                "REAL" => types.push('r'),
+                _ => types.push('t'),
+            }
+        }
+
+        Ok(types)
     }
 
     pub fn grab_catagory_from_key(&self, key: u64) -> Result<String, Box<dyn Error>> {
