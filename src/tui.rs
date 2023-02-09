@@ -1,3 +1,5 @@
+//! All things related to the pinv TUI
+
 use crate::b64;
 use crate::db;
 use crate::db::Catagory;
@@ -10,7 +12,6 @@ use cursive::align::HAlign;
 use cursive::align::VAlign;
 use cursive::event::Event;
 use cursive::event::Key;
-use cursive::menu::Item;
 use cursive::view::Nameable;
 use cursive::view::Resizable;
 use cursive::view::Selector;
@@ -18,8 +19,6 @@ use cursive::views::Button;
 use cursive::views::Dialog;
 use cursive::views::EditView;
 use cursive::views::LinearLayout;
-use cursive::views::ListView;
-use cursive::views::Menubar;
 use cursive::views::ScrollView;
 use cursive::views::SelectView;
 use cursive::views::TextView;
@@ -61,11 +60,13 @@ static TUI_TYPE_MENU_ID: &str = "type_menu";
 
 static TUI_FIELD_LIST_ID: &str = "field_list";
 
+/// Struct used for interfacing with the TUI. Uses the Cursive library.
 pub struct Tui {
     cursive: Cursive,
 }
 
 impl Tui {
+    /// Create a new TUI instance with a database.
     pub fn new(db: Db) -> Result<Self, Box<dyn Error>> {
         let mut tui = Self {
             cursive: Cursive::new(),
@@ -75,7 +76,7 @@ impl Tui {
             catagory_selected: String::new(),
             catagories_queried: vec![],
             in_dialog: false,
-            db: db,
+            db,
             fields_edited: vec![String::new()],
             entries_queried: Vec::new(),
             entry_selected: 0,
@@ -89,11 +90,13 @@ impl Tui {
         Ok(tui)
     }
 
+    /// Run the TUI instance
     pub fn run(&mut self) {
         Self::populate_with_catagories(&mut self.cursive);
         self.cursive.run_crossterm().unwrap();
     }
 
+    /// Used for binding keys and other event handlers to the TUI instance.
     fn prime(&mut self) {
         // Bind escape to a special function which will either exit entry view or exit the program,
         // depending on what view we're in. Make it a post binding since we only want it to trigger
@@ -118,6 +121,7 @@ impl Tui {
             .set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
     }
 
+    /// Used to lay out all views in the TUI instance.
     fn layout(&mut self) {
         // List view is the primary(unchangin) view for displaying data
         let list_view: SelectView<usize> = SelectView::new()
@@ -155,6 +159,7 @@ impl Tui {
         self.cursive.add_fullscreen_layer(layout.full_width());
     }
 
+    /// Called when enter is pressed on a the entry/catagory list view.
     fn list_view_on_submit(cursive: &mut Cursive, index: usize) {
         // Grab the cache
         let cache = match cursive.user_data::<TuiCache>() {
@@ -164,6 +169,7 @@ impl Tui {
             }
         };
 
+        // Only do something if in catagory view
         if cache.catagory_selected.len() == 0 {
             let catagory_name = cache.catagories_queried[index].clone();
 
@@ -171,6 +177,7 @@ impl Tui {
         }
     }
 
+    /// Populate the list view with catagories.
     fn populate_with_catagories(cursive: &mut Cursive) {
         // Grab all the views needed
         let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
@@ -209,6 +216,7 @@ impl Tui {
         cache.catagory_selected = String::new();
     }
 
+    /// Populate the list view with entries.
     fn populate_with_entries(cursive: &mut Cursive, catagory_name: &str) {
         // Grab all the views needed
         let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
@@ -275,6 +283,7 @@ impl Tui {
         cache.entries_queried = entries;
     }
 
+    /// Function called when escape is pressed.
     fn escape(cursive: &mut Cursive) {
         // Grab the cache
         let mut cache = match cursive.user_data::<TuiCache>() {
@@ -302,6 +311,7 @@ impl Tui {
         Self::exit_dialog(cursive);
     }
 
+    /// Dialog used to add either an entry or a catagory depending on the view.
     fn add_dialog(cursive: &mut Cursive) {
         // Grab the cache
         let cache = match cursive.user_data::<TuiCache>() {
@@ -323,6 +333,7 @@ impl Tui {
         }
     }
 
+    /// Dialog used to add a catagory.
     fn add_catagory_dialog(cursive: &mut Cursive) {
         // Grab the cache
         let mut cache = match cursive.user_data::<TuiCache>() {
@@ -361,6 +372,8 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Function called when the submit button is pressed in the add catagory
+    /// dialog.
     fn add_catagory_dialog_submit(cursive: &mut Cursive) {
         // Grab the views we need
         let catagory_name_view: ViewRef<EditView> =
@@ -395,15 +408,8 @@ impl Tui {
         Self::populate_with_catagories(cursive);
     }
 
+    /// Dialog used to add a field to a catagory.
     fn add_catagory_field_dialog(cursive: &mut Cursive) {
-        // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
-
         // We are already in a dialog so we don't need to set cache.in_dialog
 
         let name_view = TextView::new("Name: ");
@@ -431,6 +437,8 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Function called when the submit button is pressed in the add catagory
+    /// field dialog.
     fn add_catagory_field_submit(cursive: &mut Cursive) {
         // Grab the views we need
         let type_menu_view: ViewRef<SelectView<db::DataType>> =
@@ -460,6 +468,7 @@ impl Tui {
         cursive.pop_layer();
     }
 
+    /// Dialog used to add an entry to the database.
     fn add_entry_dialog(cursive: &mut Cursive) {
         // Grab the cache
         let mut cache = match cursive.user_data::<TuiCache>() {
@@ -514,6 +523,8 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Function called when a field is edited(will most likely be removed in
+    /// future updates)
     fn edit_field(cursive: &mut Cursive, string: &str, number: usize) {
         // Grab the cache
         let cache = match cursive.user_data::<TuiCache>() {
@@ -526,6 +537,8 @@ impl Tui {
         cache.fields_edited[number] = string.to_string();
     }
 
+    /// Function called when the submit button is pressed in the add entry
+    /// dialog.
     fn add_entry_submit(cursive: &mut Cursive) {
         // Grab the cache
         let cache = match cursive.user_data::<TuiCache>() {
@@ -582,6 +595,8 @@ impl Tui {
         Self::populate_with_entries(cursive, &catagory);
     }
 
+    /// Dialog used when either giving or taking from an entry. If give is
+    /// true, we are giving to an entry. If false, we are taking from an entry.
     fn give_take_dialog(cursive: &mut Cursive, give: bool) {
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
@@ -666,12 +681,13 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Update the dialog to reflect the new quantity
     fn give_take_dialog_update(cursive: &mut Cursive, give: bool) {
         let mut new_quantity_view: ViewRef<TextView> =
             cursive.find_name(TUI_NEW_QUANTITY_ID).unwrap();
 
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
+        let cache = match cursive.user_data::<TuiCache>() {
             Some(cache) => cache,
             None => {
                 panic!("Failed to initialize Cursive instance with cache! this should not happen!");
@@ -703,6 +719,8 @@ impl Tui {
         new_quantity_view.set_content(format!("New Quantity: {}", quantity));
     }
 
+    /// Function called when the submit button on the give or take dialog is
+    /// pressed.
     fn give_take_dialog_submit(cursive: &mut Cursive, give: bool) {
         // Grab the cache
         let mut cache = match cursive.user_data::<TuiCache>() {
@@ -750,6 +768,8 @@ impl Tui {
         Self::populate_with_entries(cursive, &catagory);
     }
 
+    /// Dialog that confirms if you wish to delete an entry, and if so, deletes
+    /// the entry.
     fn delete_dialog(cursive: &mut Cursive) {
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
@@ -793,6 +813,7 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Deletes the entry if "Yes" is selected on the delete dialog.
     fn delete_dialog_submit(cursive: &mut Cursive, key: u64) {
         // Grab the cache
         let mut cache = match cursive.user_data::<TuiCache>() {
@@ -811,6 +832,7 @@ impl Tui {
         Self::populate_with_entries(cursive, &catagory);
     }
 
+    /// Dialog used to confirm that a used wishes to exit the program.
     fn exit_dialog(cursive: &mut Cursive) {
         let exit_dialog = Dialog::text("Are You Sure You Want To Exit?")
             .button("No...", |cursive| {
@@ -821,6 +843,8 @@ impl Tui {
         cursive.add_layer(exit_dialog);
     }
 
+    /// Converts a table into strings that mimic an excel table, or something
+    /// alike that.
     fn columnator(headers: Vec<String>, table: Vec<Vec<String>>) -> Vec<String> {
         // First calculate the widths of each column
         let mut column_widths = Vec::<usize>::with_capacity(headers.len());
@@ -873,12 +897,23 @@ impl Tui {
     }
 }
 
-pub struct TuiCache {
-    pub catagory_selected: String, // If empty, we know we are at catagory view
+/// Data cache during the TUI session
+struct TuiCache {
+    /// The currently selected catagory. If empty, we are in catagory view.
+    pub catagory_selected: String,
+    /// The catagories queried. This is to prevent issues incase the database
+    /// is altered outside of pinv while the program is running.
     pub catagories_queried: Vec<String>,
+    /// The entries queried. This is to prevent issues incase the database is
+    /// altered outside of pinv while the program is running.
     pub entries_queried: Vec<Entry>,
+    /// Index of the selected entry
     pub entry_selected: usize,
+    /// Set if in a dialog.
     pub in_dialog: bool,
+    /// Database in use
     pub db: Db,
+    /// May be removed in future update, used to hold the value of dialog
+    /// fields.
     pub fields_edited: Vec<String>,
 }

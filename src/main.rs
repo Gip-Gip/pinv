@@ -3,7 +3,6 @@ use clap::{arg, command, Command};
 use pinv::db::{Catagory, CatagoryField, Db, Entry, EntryField};
 use pinv::tui::Tui;
 use pinv::{b64, csv};
-use std::error::Error;
 use std::fs;
 use std::io::stdin;
 
@@ -21,6 +20,7 @@ fn confirm() -> bool {
     false
 }
 
+/// Probably going to redo this in the near future, but it sorta works for now
 fn main() {
     let mut db = Db::init();
 
