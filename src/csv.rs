@@ -7,7 +7,7 @@ use csv::ReaderBuilder;
 use simple_error::bail;
 use std::error::Error;
 
-/// Take the name of a csv file and convert the rows in it to entries 
+/// Take the name of a csv file and convert the rows in it to entries
 pub fn csv_to_entries(file_name: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
     let mut entries = Vec::<Entry>::new();
     let mut csv_reader = ReaderBuilder::new()

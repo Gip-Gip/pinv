@@ -1,3 +1,5 @@
+//! Everything needed to interact with a pinv database
+
 use crate::b64;
 use chrono::{Local, TimeZone};
 use core::fmt;
@@ -5,19 +7,25 @@ use directories::ProjectDirs;
 use rusqlite::Error as SqlError;
 use rusqlite::{types::ValueRef, Connection, OptionalExtension};
 use simple_error::bail;
-use std::{cmp, error::Error, fmt::format, fs};
+use std::{cmp, error::Error, fs};
 
-/// Mapping to SQLite datatypes
+/// Datatypes in PINV
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
+    /// Null, nothing
     NULL,
+    /// Any whole number negative or non-negative
     INTEGER,
+    /// Any number with a decimal in it
     REAL,
+    /// Any unicode string
     TEXT,
+    /// Raw data, currently not in use
     BLOB,
 }
 
 impl DataType {
+    /// Get the code character of a certain datatype, like i for integer.
     pub fn get_char(&self) -> char {
         match self {
             Self::NULL => 'n',
@@ -29,23 +37,42 @@ impl DataType {
     }
 }
 
+/// Datatypes in SQLite
 pub enum SQLValue {
+    /// Null, nothing
     NULL,
+    /// Any whole number negative or non-negative
     INTEGER(u64),
+    /// Any number with a decimal in it
     REAL(f64),
+    /// Any unicode string
     TEXT(String),
+    /// Raw data, currently not in use
     BLOB(Vec<u8>),
 }
 
 /// Used to define fields in catagories
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatagoryField {
+    /// id of the field, case insensitive
     pub id: String,
+    /// pinv datatype of the field
     pub data_type: DataType,
 }
 
 impl CatagoryField {
+    /// Create a field from a string.
+    ///
+    /// Format is *id*:*datatype*, where id is the case-insensitive id of the
+    /// field and datatype is the code character of a pinv datatype.
+    ///
+    /// Example,
+    ///
+    /// `max_volts:r`
+    ///
+    /// would create a field named "max_volts" of type real.
     pub fn from_str(string: &str) -> Result<Self, Box<dyn Error>> {
+        // !TODO! Needs better code to detect if a string is valid or not
         let split_str: Vec<&str> = string.split(":").collect();
 
         // If the string was split more than once, or not at all, we got a problem!
@@ -53,6 +80,7 @@ impl CatagoryField {
             bail!(r#"Invalid field definition "{}"!"#, string);
         }
 
+        // !TODO! Replace with future DataType::from_char()?
         let data_type = match split_str[1] {
             "n" => DataType::NULL,
             "i" => DataType::INTEGER,
@@ -66,10 +94,12 @@ impl CatagoryField {
 
         Ok(Self {
             id: split_str[0].to_owned().to_uppercase(), // Make it case insensitive by converting the id to uppercase
-            data_type: data_type,
+            data_type,
         })
     }
 
+    /// Get the type of the field and convert it to it's SQL keyword
+    /// equivalent. E.g. a field with type integer would return "INTEGER"
     pub fn sql_type(&self) -> String {
         match &self.data_type {
             DataType::NULL => "NULL".to_owned(),
@@ -79,36 +109,37 @@ impl CatagoryField {
             DataType::BLOB => "BLOB".to_owned(),
         }
     }
-
-    pub fn get_sql(&self) -> String {
-        todo!()
-    }
 }
 
 /// Used to help define catagories(which are translated directly into sql tables)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Catagory {
+    /// ID of the catagory, case insensitive
     pub id: String,
+    /// Fields associated with the catagory
     pub fields: Vec<CatagoryField>,
 }
 
 impl Catagory {
+    /// Create an empty catagory with an id
     pub fn new(id: &str) -> Self {
         let fields = Vec::new();
 
         Self {
             id: id.to_owned().to_uppercase(), // Make it case insensitive by converting the id to uppercase
-            fields: fields,
+            fields,
         }
     }
 
+    /// Create a catagory with an id and a vector of fields
     pub fn with_fields(id: &str, fields: Vec<CatagoryField>) -> Self {
         Self {
             id: id.to_owned().to_uppercase(), // Make it case insensitive by converting the id to uppercase
-            fields: fields,
+            fields,
         }
     }
 
+    /// Add a field to the catagory
     pub fn add_field(&mut self, field: CatagoryField) {
         self.fields.push(field);
     }
@@ -145,19 +176,31 @@ impl fmt::Display for Catagory {
 /// Fields for entries
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntryField {
+    /// ID of the field, case insensitive.
     pub id: String,
+    /// Value of the field, as a string(not yet parsed).
     pub value: String,
 }
 
 impl EntryField {
+    /// Create  a new fields with an id and a value.
     pub fn new(id: &str, value: &str) -> Self {
         Self {
             id: id.to_owned(),
             value: value.to_owned(),
         }
     }
-    /// Create an entry field from a string
+
+    /// Create an entry field from a string.
     ///
+    /// Format is *id*=*value*, where id is the case-insensitive field id and
+    /// value is the value you want to assign to the field.
+    ///
+    /// Example,
+    ///
+    /// `max_volts=3.3`
+    ///
+    /// Assigns the "max_volts" field a value of 3.3
     pub fn from_str(string: &str) -> Result<Self, Box<dyn Error>> {
         let split_str: Vec<&str> = string.split("=").collect();
 
@@ -181,12 +224,19 @@ impl EntryField {
 /// Used to create database entries
 #[derive(Debug, PartialEq)]
 pub struct Entry {
+    /// Catagory the entry belongs to
     pub catagory_id: String,
+    /// Key of the catagory
     pub key: u64,
+    /// Physical location of the entry
     pub location: String,
+    /// Quantity of the entry
     pub quantity: u64,
+    /// Creation time of the entry in unix time
     pub created: i64,
+    /// Modification time of the entry in unix time
     pub modified: i64,
+    /// Fields associated with the entry
     pub fields: Vec<EntryField>,
 }
 
@@ -204,18 +254,18 @@ impl Entry {
         let fields = Vec::new();
 
         Self {
-            catagory_id: catagory_id.to_owned().to_uppercase(),
-            key: key,
+            catagory_id: catagory_id.to_owned().to_uppercase(), // Make the catagory id case
+            // insensitive
+            key,
             location: location.to_owned(),
-            quantity: quantity,
-            created: created,
-            modified: modified,
-            fields: fields,
+            quantity,
+            created,
+            modified,
+            fields,
         }
     }
 
-    /// Add an entry field to the entry
-    ///
+    /// Add a field to the entry
     pub fn add_field(&mut self, field: EntryField) {
         self.fields.push(field);
     }
@@ -266,27 +316,32 @@ impl fmt::Display for Entry {
     }
 }
 
-/// Used to interface with an SQLite database, makes sure all the required
-/// tables are initialized and knows how to properly retrieve, create, and
-/// store individual entries
+/// Used to interface with the pinv database. As of the current version, sqlite
+/// is used to store and retrieve entries but this may change in the future.
 pub struct Db {
     /// Connection to SQLite database
     pub connection: Connection,
 }
 
 impl Db {
+    /// Initialize the pinv database. The database file is located in the
+    /// current user's home data folder.
     pub fn init() -> Self {
         let qualifier = "org";
         let organisation = "Open Ape Shop";
         let application = "pinv";
 
+        // Get the home data directories depending on the system
         let dirs = ProjectDirs::from(qualifier, organisation, application).unwrap();
 
         let data_dir = dirs.data_dir().to_owned();
 
+        // Create the path to the datafile
         let mut db_filepath = data_dir.clone();
         db_filepath.push("pinv.db3");
 
+        // If the data directory doesn't exist, create it
+        // !TODO! Replace unwrap with proper error handling, perhaps
         if !data_dir.exists() {
             fs::create_dir_all(data_dir.as_path()).unwrap();
         }
@@ -294,7 +349,8 @@ impl Db {
         let connection = Connection::open(db_filepath).unwrap();
 
         // Check to see if the keys table exists in the database...
-
+        // !TODO! use statement or something instead of a raw query, or maybe
+        // just ditch raw sql entirely...
         let query = "SELECT name FROM sqlite_master WHERE type='table' AND name='KEYS'";
 
         match connection
@@ -304,6 +360,7 @@ impl Db {
         {
             Some(_) => {}
             None => {
+                // In the case it doesn't exist, create it
                 let query =
                     "CREATE TABLE KEYS (KEY INTEGER NOT NULL PRIMARY KEY, CATAGORY TEXT NOT NULL)";
 
@@ -311,11 +368,10 @@ impl Db {
             }
         }
 
-        Self {
-            connection: connection,
-        }
+        Self { connection }
     }
 
+    /// Create a database in RAM for testing purposes...
     pub fn _new_test() -> Self {
         let connection = Connection::open_in_memory().unwrap();
 
@@ -325,12 +381,11 @@ impl Db {
 
         connection.execute(query, []).unwrap();
 
-        Self {
-            connection: connection,
-        }
+        Self { connection }
     }
 
-    pub fn add_key(&mut self, key: u64, catagory_id: &str) -> Result<(), Box<dyn Error>> {
+    /// Add a key to the key table.
+    fn add_key(&mut self, key: u64, catagory_id: &str) -> Result<(), Box<dyn Error>> {
         let query = format!(
             "INSERT INTO KEYS (KEY, CATAGORY)\nVALUES ({}, '{}')",
             key, catagory_id
@@ -341,6 +396,9 @@ impl Db {
         Ok(())
     }
 
+    /// Add a catagory to the database.
+    ///
+    /// More or less just converts the catagory struct into an SQL table.
     pub fn add_catagory(&mut self, catagory: Catagory) -> Result<(), Box<dyn Error>> {
         // Check to see if the table exists first...
         let query = format!(
@@ -380,6 +438,9 @@ impl Db {
         Ok(())
     }
 
+    /// Add an entry to the database.
+    ///
+    /// More or less just converts the entry struct into SQL.
     pub fn add_entry(&mut self, entry: Entry) -> Result<(), Box<dyn Error>> {
         self.add_key(entry.key, &entry.catagory_id)?;
 
@@ -417,8 +478,7 @@ impl Db {
         }
     }
 
-    /// Get an entry from a query
-    ///
+    /// Get an entry from a query string
     pub fn query_to_entry(&self, query: &str, catagory_id: &str) -> Result<Entry, Box<dyn Error>> {
         let mut statement = self.connection.prepare(query)?;
         let mut column_names = Vec::<String>::new();
@@ -427,7 +487,9 @@ impl Db {
             column_names.push(name.to_string())
         }
 
-        let entry: Entry = statement.query_row([], |row| {
+        // Assumes the key and other mandatory entry fields are in the same
+        // column. Shouldn't change, right?
+        Ok(statement.query_row([], |row| {
             let mut entry = Entry::new(
                 catagory_id,
                 row.get(0).unwrap(),
@@ -437,14 +499,17 @@ impl Db {
                 row.get(4).unwrap(),
             );
 
+            // Get the rest of the fields
             let mut i: usize = 5;
             loop {
                 let value: String = match row.get_ref(i) {
                     Ok(result) => format!("{}", Self::sqlval_to_string(result)),
                     Err(e) => match e {
+                        // Break if we ran out of columns
                         SqlError::InvalidColumnIndex(_) => {
                             break;
                         }
+                        // Otherwise, error
                         _ => {
                             return Err(e);
                         }
@@ -457,13 +522,10 @@ impl Db {
             }
 
             Ok(entry)
-        })?;
-
-        Ok(entry)
+        })?)
     }
 
     /// Get entries from a query
-    ///
     pub fn query_to_entries(
         &self,
         query: &str,
@@ -516,6 +578,7 @@ impl Db {
         Ok(entries)
     }
 
+    /// Grab the ids of the fields in a catagory.
     pub fn grab_catagory_fields(&self, name: &str) -> Result<Vec<String>, Box<dyn Error>> {
         let statement = self
             .connection
@@ -529,6 +592,9 @@ impl Db {
         Ok(column_names)
     }
 
+    /// Grab the types of the fields in a catagory.
+    ///
+    /// !TODO! Change the return type to the DataType enum.
     pub fn grab_catagory_types(&self, name: &str) -> Result<Vec<char>, Box<dyn Error>> {
         let mut statement = self
             .connection
@@ -549,13 +615,14 @@ impl Db {
         Ok(types)
     }
 
+    /// Grab the catagory associated with a key.
     pub fn grab_catagory_from_key(&self, key: u64) -> Result<String, Box<dyn Error>> {
-        // First we have to figure out which catagory it's in
         let query = format!("SELECT CATAGORY FROM KEYS WHERE KEY={}", key);
 
         Ok(self.connection.query_row(&query, [], |row| row.get(0))?)
     }
 
+    /// Grab an entry using only a key
     pub fn grab_entry(&self, key: u64) -> Result<Entry, Box<dyn Error>> {
         // First get the catagory the entry is in
         let catagory = self.grab_catagory_from_key(key)?;
@@ -566,7 +633,10 @@ impl Db {
         self.query_to_entry(&query, &catagory)
     }
 
+    /// Get the next unused key in the database
     pub fn grab_next_available_key(&self, key: u64) -> Result<u64, Box<dyn Error>> {
+        // Prepare a statement where the key provided is seached for in the
+        // key table
         let mut statement = self
             .connection
             .prepare("SELECT KEY FROM KEYS WHERE KEY = ?")?;
@@ -578,7 +648,9 @@ impl Db {
                 .query_row(rusqlite::params![key], |_| Ok(()))
                 .optional()?
             {
+                // If the key is in the table, increment the key and loop
                 Some(_) => {}
+                // Otherwise break and return the key
                 None => {
                     break;
                 }
@@ -590,6 +662,7 @@ impl Db {
         Ok(key)
     }
 
+    /// Get all the catagories in the database.
     pub fn list_catagories(&self) -> Result<Vec<String>, Box<dyn Error>> {
         // Select all tables excluding the keys table
         let mut statement = self.connection.prepare(
@@ -607,6 +680,8 @@ impl Db {
         Ok(names)
     }
 
+    /// Get the stats of all catagories in the database. Currently only
+    /// retrieves name and number of entries in a catagory.
     pub fn stat_catagories(&self) -> Result<Vec<Vec<String>>, Box<dyn Error>> {
         let catagories = self.list_catagories()?;
 
@@ -627,6 +702,7 @@ impl Db {
         Ok(catagory_table)
     }
 
+    /// Delete an entry given only the key
     pub fn delete_entry(&mut self, key: u64) -> Result<(), Box<dyn Error>> {
         // First, get the catagory the entry is in
         let catagory = self.grab_catagory_from_key(key)?;
@@ -641,6 +717,7 @@ impl Db {
         Ok(())
     }
 
+    /// Return entries in a catagory that match the given conditions
     pub fn search_catagory(
         &self,
         catagory_id: &str,
@@ -669,6 +746,7 @@ impl Db {
         self.query_to_entries(&query, catagory_id)
     }
 
+    /// Take an SVG template and fill it with all available keys
     pub fn fill_svg_template(&self, data: String) -> Result<String, Box<dyn Error>> {
         let chunks: Vec<String> = data.split("FOO!").map(|chunk| chunk.to_owned()).collect();
 
@@ -688,7 +766,9 @@ impl Db {
 
         Ok(data)
     }
-    pub fn remove_key(&mut self, key: u64) -> Result<(), Box<dyn Error>> {
+
+    /// Remove a key from the key table
+    fn remove_key(&mut self, key: u64) -> Result<(), Box<dyn Error>> {
         let query = format!("DELETE FROM KEYS WHERE KEY={}", key);
 
         self.connection.execute(&query, [])?;
@@ -696,6 +776,7 @@ impl Db {
         Ok(())
     }
 
+    /// Modify a entry with only a key and the fields to be modified
     pub fn mod_entry(&mut self, key: u64, fields: Vec<EntryField>) -> Result<(), Box<dyn Error>> {
         // First get the catagory the entry is in
         let catagory = self.grab_catagory_from_key(key)?;
@@ -711,7 +792,7 @@ impl Db {
             }
         }
 
-        // Next grab the entry from the catagory
+        // Next update the entry
         let query = format!("UPDATE {} SET {} WHERE KEY={}", catagory, fields_str, key);
 
         self.connection.execute(&query, [])?;
@@ -719,31 +800,8 @@ impl Db {
         Ok(())
     }
 
-    pub fn take(&mut self, key: u64, quantity: u64) -> Result<(), Box<dyn Error>> {
-        let entry = self.grab_entry(key)?;
-
-        if entry.quantity < quantity {
-            bail!(
-                "Tried to take more than the entry had! Has {}, try to take {}!",
-                entry.quantity,
-                quantity
-            );
-        }
-
-        let field = EntryField::from_str(&format!("QUANTITY={}", entry.quantity - quantity))?;
-
-        self.mod_entry(key, vec![field])
-    }
-
-    pub fn give(&mut self, key: u64, quantity: u64) -> Result<(), Box<dyn Error>> {
-        let entry = self.grab_entry(key)?;
-
-        let field = EntryField::from_str(&format!("QUANTITY={}", entry.quantity + quantity))?;
-
-        self.mod_entry(key, vec![field])
-    }
-
-    pub fn sqlval_to_string(value: ValueRef) -> String {
+    /// Convert an SQL valueref into a string
+    fn sqlval_to_string(value: ValueRef) -> String {
         match value {
             ValueRef::Null => "NULL".to_owned(),
             ValueRef::Integer(i) => format!("{}", i),
@@ -1417,16 +1475,6 @@ pub mod tests {
 
         db.mod_entry(0, vec![EntryField::from_str("quantity=9").unwrap()])
             .unwrap();
-
-        assert_eq!(db.grab_entry(0).unwrap().quantity, 9);
-
-        // Test taking and giving
-
-        db.give(0, 1).unwrap();
-
-        assert_eq!(db.grab_entry(0).unwrap().quantity, 10);
-
-        db.take(0, 1).unwrap();
 
         assert_eq!(db.grab_entry(0).unwrap().quantity, 9);
     }
