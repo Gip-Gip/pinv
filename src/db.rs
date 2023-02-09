@@ -1,11 +1,11 @@
-use chrono::{Local, TimeZone};
-use rusqlite::{Connection, OptionalExtension, types::ValueRef};
-use simple_error::bail;
-use core::fmt;
-use std::{error::Error, cmp, fmt::format, fs};
-use rusqlite::Error as SqlError;
-use directories::ProjectDirs;
 use crate::b64;
+use chrono::{Local, TimeZone};
+use core::fmt;
+use directories::ProjectDirs;
+use rusqlite::Error as SqlError;
+use rusqlite::{types::ValueRef, Connection, OptionalExtension};
+use simple_error::bail;
+use std::{cmp, error::Error, fmt::format, fs};
 
 /// Mapping to SQLite datatypes
 #[derive(Debug, Clone, PartialEq)]
@@ -19,12 +19,12 @@ pub enum DataType {
 
 impl DataType {
     pub fn get_char(&self) -> char {
-        match self { 
+        match self {
             Self::NULL => 'n',
             Self::INTEGER => 'i',
             Self::REAL => 'r',
             Self::TEXT => 't',
-            Self::BLOB => 'b'
+            Self::BLOB => 'b',
         }
     }
 }
@@ -117,21 +117,29 @@ impl Catagory {
 impl fmt::Display for Catagory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Get the longest ID in all the fields
-        let mut padlen: usize = 0; 
+        let mut padlen: usize = 0;
 
         for field in &self.fields {
             padlen = cmp::max(padlen, field.id.len());
         }
-        
+
         let mut out: String = format!("CATAGORY {}:", self.id);
 
         for field in &self.fields {
-            out.push_str(format!("\n    {}:{foo: >padlen$} {}", field.id, field.sql_type(), padlen = padlen-field.id.len(), foo="").as_str());
+            out.push_str(
+                format!(
+                    "\n    {}:{foo: >padlen$} {}",
+                    field.id,
+                    field.sql_type(),
+                    padlen = padlen - field.id.len(),
+                    foo = ""
+                )
+                .as_str(),
+            );
         }
 
         write!(f, "{}", out)
     }
-
 }
 
 /// Fields for entries
@@ -145,7 +153,7 @@ impl EntryField {
     pub fn new(id: &str, value: &str) -> Self {
         Self {
             id: id.to_owned(),
-            value: value.to_owned()
+            value: value.to_owned(),
         }
     }
     /// Create an entry field from a string
@@ -185,7 +193,14 @@ pub struct Entry {
 impl Entry {
     /// Create a new entry
     ///
-    pub fn new(catagory_id: &str, key: u64, location: &str, quantity: u64, created: i64, modified: i64) -> Self {
+    pub fn new(
+        catagory_id: &str,
+        key: u64,
+        location: &str,
+        quantity: u64,
+        created: i64,
+        modified: i64,
+    ) -> Self {
         let fields = Vec::new();
 
         Self {
@@ -195,10 +210,9 @@ impl Entry {
             quantity: quantity,
             created: created,
             modified: modified,
-            fields: fields
+            fields: fields,
         }
     }
-
 
     /// Add an entry field to the entry
     ///
@@ -219,21 +233,33 @@ impl fmt::Display for Entry {
         let created_str = Local.timestamp(self.created, 0).to_string();
         let modified_str = Local.timestamp(self.modified, 0).to_string();
 
-        let mut out: String = format!(r#"ENTRY {}, CATAGORY {}:
+        let mut out: String = format!(
+            r#"ENTRY {}, CATAGORY {}:
     LOCATION{foo: >padlen$} = '{}',
     QUANTITY{foo: >padlen$} = {},
     CREATED {foo: >padlen$} = {},
     MODIFIED{foo: >padlen$} = {}"#,
-    b64::from_u64(self.key),
-    &self.catagory_id,
-    &self.location,
-    self.quantity,
-    created_str,
-    modified_str,
-    padlen = padlen-8, foo="");
+            b64::from_u64(self.key),
+            &self.catagory_id,
+            &self.location,
+            self.quantity,
+            created_str,
+            modified_str,
+            padlen = padlen - 8,
+            foo = ""
+        );
 
         for field in &self.fields {
-            out.push_str(format!(",\n    {}{foo: >padlen$} = {}", field.id, field.value, padlen = padlen-field.id.len(), foo="").as_str());
+            out.push_str(
+                format!(
+                    ",\n    {}{foo: >padlen$} = {}",
+                    field.id,
+                    field.value,
+                    padlen = padlen - field.id.len(),
+                    foo = ""
+                )
+                .as_str(),
+            );
         }
 
         write!(f, "{}", out)
@@ -268,13 +294,18 @@ impl Db {
         let connection = Connection::open(db_filepath).unwrap();
 
         // Check to see if the keys table exists in the database...
-        
+
         let query = "SELECT name FROM sqlite_master WHERE type='table' AND name='KEYS'";
 
-        match connection.query_row(query, [], |_| Ok(())).optional().unwrap() {
+        match connection
+            .query_row(query, [], |_| Ok(()))
+            .optional()
+            .unwrap()
+        {
             Some(_) => {}
             None => {
-                let query = "CREATE TABLE KEYS (KEY INTEGER NOT NULL PRIMARY KEY, CATAGORY TEXT NOT NULL)";
+                let query =
+                    "CREATE TABLE KEYS (KEY INTEGER NOT NULL PRIMARY KEY, CATAGORY TEXT NOT NULL)";
 
                 connection.execute(query, []).unwrap();
             }
@@ -300,10 +331,13 @@ impl Db {
     }
 
     pub fn add_key(&mut self, key: u64, catagory_id: &str) -> Result<(), Box<dyn Error>> {
-        let query = format!("INSERT INTO KEYS (KEY, CATAGORY)\nVALUES ({}, '{}')", key, catagory_id);
+        let query = format!(
+            "INSERT INTO KEYS (KEY, CATAGORY)\nVALUES ({}, '{}')",
+            key, catagory_id
+        );
 
         self.connection.execute(&query, [])?;
-        
+
         Ok(())
     }
 
@@ -356,11 +390,7 @@ impl Db {
 
         let mut query_b = format!(
             ")\nVALUES ({}, '{}', {}, {}, {}",
-            entry.key,
-            entry.location,
-            entry.quantity,
-            entry.created,
-            entry.modified
+            entry.key, entry.location, entry.quantity, entry.created, entry.modified
         );
 
         for field in entry.fields {
@@ -404,7 +434,7 @@ impl Db {
                 (row.get::<usize, String>(1).unwrap()).as_str(),
                 row.get(2).unwrap(),
                 row.get(3).unwrap(),
-                row.get(4).unwrap()
+                row.get(4).unwrap(),
             );
 
             let mut i: usize = 5;
@@ -412,11 +442,13 @@ impl Db {
                 let value: String = match row.get_ref(i) {
                     Ok(result) => format!("{}", Self::sqlval_to_string(result)),
                     Err(e) => match e {
-                        SqlError::InvalidColumnIndex(_) => {break;},
+                        SqlError::InvalidColumnIndex(_) => {
+                            break;
+                        }
                         _ => {
                             return Err(e);
                         }
-                    }
+                    },
                 };
                 let entry_field = EntryField::new(&column_names[i], &value);
                 entry.add_field(entry_field);
@@ -432,7 +464,11 @@ impl Db {
 
     /// Get entries from a query
     ///
-    pub fn query_to_entries(&self, query: &str, catagory_id: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
+    pub fn query_to_entries(
+        &self,
+        query: &str,
+        catagory_id: &str,
+    ) -> Result<Vec<Entry>, Box<dyn Error>> {
         let mut statement = self.connection.prepare(query)?;
         let mut column_names = Vec::<String>::new();
 
@@ -451,20 +487,22 @@ impl Db {
                 (row.get::<usize, String>(1)?).as_str(),
                 row.get(2)?,
                 row.get(3)?,
-                row.get(4)?
+                row.get(4)?,
             );
 
             let mut i: usize = 5;
-            
+
             loop {
                 let value: String = match row.get_ref(i) {
                     Ok(result) => format!("{}", Self::sqlval_to_string(result)),
                     Err(e) => match e {
-                        SqlError::InvalidColumnIndex(_) => {break;},
+                        SqlError::InvalidColumnIndex(_) => {
+                            break;
+                        }
                         _ => {
                             return Err(Box::new(e));
                         }
-                    }
+                    },
                 };
                 let entry_field = EntryField::new(&column_names[i], &value);
                 entry.add_field(entry_field);
@@ -479,7 +517,9 @@ impl Db {
     }
 
     pub fn grab_catagory_fields(&self, name: &str) -> Result<Vec<String>, Box<dyn Error>> {
-        let statement = self.connection.prepare(&format!("SELECT * FROM {}", name))?;
+        let statement = self
+            .connection
+            .prepare(&format!("SELECT * FROM {}", name))?;
         let mut column_names = Vec::<String>::new();
 
         for name in statement.column_names() {
@@ -490,7 +530,9 @@ impl Db {
     }
 
     pub fn grab_catagory_types(&self, name: &str) -> Result<Vec<char>, Box<dyn Error>> {
-        let mut statement = self.connection.prepare(&format!("PRAGMA table_info({})", name))?;
+        let mut statement = self
+            .connection
+            .prepare(&format!("PRAGMA table_info({})", name))?;
 
         let mut rows = statement.query([])?;
         let mut types = Vec::<char>::new();
@@ -525,14 +567,21 @@ impl Db {
     }
 
     pub fn grab_next_available_key(&self, key: u64) -> Result<u64, Box<dyn Error>> {
-        let mut statement = self.connection.prepare("SELECT KEY FROM KEYS WHERE KEY = ?")?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT KEY FROM KEYS WHERE KEY = ?")?;
 
         let mut key = key;
 
         loop {
-            match statement.query_row(rusqlite::params![key], |_|{Ok(())}).optional()? {
-                Some(_) => {},
-                None => {break;}
+            match statement
+                .query_row(rusqlite::params![key], |_| Ok(()))
+                .optional()?
+            {
+                Some(_) => {}
+                None => {
+                    break;
+                }
             }
 
             key += 1
@@ -543,7 +592,9 @@ impl Db {
 
     pub fn list_catagories(&self) -> Result<Vec<String>, Box<dyn Error>> {
         // Select all tables excluding the keys table
-        let mut statement = self.connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name!='KEYS' ORDER BY name;")?;
+        let mut statement = self.connection.prepare(
+            "SELECT name FROM sqlite_schema WHERE type='table' AND name!='KEYS' ORDER BY name;",
+        )?;
 
         let mut rows = statement.query([])?;
 
@@ -552,7 +603,7 @@ impl Db {
         while let Some(row) = rows.next()? {
             names.push(row.get(0)?);
         }
-        
+
         Ok(names)
     }
 
@@ -562,7 +613,11 @@ impl Db {
         let mut catagory_table = Vec::<Vec<String>>::with_capacity(catagories.len());
 
         for catagory in catagories {
-            let count: usize = self.connection.query_row(&format!("SELECT COUNT(*) FROM {}", catagory), [], |row| row.get(0))?;
+            let count: usize = self.connection.query_row(
+                &format!("SELECT COUNT(*) FROM {}", catagory),
+                [],
+                |row| row.get(0),
+            )?;
 
             let catagory_row = vec![catagory, count.to_string()];
 
@@ -586,12 +641,16 @@ impl Db {
         Ok(())
     }
 
-    pub fn search_catagory(&self, catagory_id: &str, conditions: Vec<&str>) -> Result<Vec<Entry>, Box<dyn Error>> {
+    pub fn search_catagory(
+        &self,
+        catagory_id: &str,
+        conditions: Vec<&str>,
+    ) -> Result<Vec<Entry>, Box<dyn Error>> {
         let mut query = format!("SELECT * FROM {} WHERE ", catagory_id);
 
         for (i, condition) in conditions.iter().enumerate() {
             let condition_split: Vec<&str> = condition.split('=').collect();
-            
+
             if condition_split.len() != 2 {
                 bail!("Invalid condition \"{}\"!", condition);
             }
@@ -601,7 +660,7 @@ impl Db {
 
             query.push_str(format!("{}={}", id, value).as_str());
 
-            query.push_str(match i.cmp(&(conditions.len()-1)){
+            query.push_str(match i.cmp(&(conditions.len() - 1)) {
                 cmp::Ordering::Less => " OR ",
                 _ => ";",
             })
@@ -664,7 +723,11 @@ impl Db {
         let entry = self.grab_entry(key)?;
 
         if entry.quantity < quantity {
-            bail!("Tried to take more than the entry had! Has {}, try to take {}!", entry.quantity, quantity);
+            bail!(
+                "Tried to take more than the entry had! Has {}, try to take {}!",
+                entry.quantity,
+                quantity
+            );
         }
 
         let field = EntryField::from_str(&format!("QUANTITY={}", entry.quantity - quantity))?;
@@ -767,7 +830,7 @@ pub mod tests {
     //      MAKEUP      = 'Aluminum Electrolytic'
     //      CASE_CODE   = '25x12.5 Radial'
     //      DATASHEET   = 'https://www.vishay.com/doc?28499'
-    // 
+    //
     //  Entry 3, CATAGORY 'CAPACITOR':
     //      KEY         = 3
     //      LOCATION    = 'bartown'
@@ -782,7 +845,7 @@ pub mod tests {
     //      MAKEUP      = 'Mica'
     //      CASE_CODE   = '0805'
     //      DATASHEET   = 'https://www.mouser.com/datasheet/2/88/CDUB_S_A0011956908_1-2540249.pdf'
-    
+
     // Return test catagory a, 'RESISTOR'
     pub fn test_catagory_a() -> Catagory {
         Catagory {
@@ -790,45 +853,45 @@ pub mod tests {
             fields: vec![
                 CatagoryField {
                     id: "MPN".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MFCD_BY".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "OHMS".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "WATTS".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TOLERANCE".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "PPM_C".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TERM_STYLE".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MAKEUP".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "CASE_CODE".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "DATASHEET".to_owned(),
-                    data_type: DataType::TEXT
-                }
-            ]
+                    data_type: DataType::TEXT,
+                },
+            ],
         }
     }
 
@@ -843,45 +906,45 @@ pub mod tests {
                 },
                 CatagoryField {
                     id: "MFCD_BY".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "FARADS".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "VOLTAGE_DC".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "VOLTAGE_AC".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "HOURS".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TOLERANCE".to_owned(),
-                    data_type: DataType::REAL
+                    data_type: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TERM_STYLE".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MAKEUP".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "CASE_CODE".to_owned(),
-                    data_type: DataType::TEXT
+                    data_type: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "DATASHEET".to_owned(),
-                    data_type: DataType::TEXT
-                }
-            ]
+                    data_type: DataType::TEXT,
+                },
+            ],
         }
     }
 
@@ -949,47 +1012,49 @@ pub mod tests {
             created: 0,
             modified: 0,
             fields: vec![
-                EntryField{
+                EntryField {
                     id: "MPN".to_owned(),
-                    value: "'HPCR0819AK39RST'".to_owned()
+                    value: "'HPCR0819AK39RST'".to_owned(),
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'TE Connectivity/Holsworthy'".to_owned()
+                    value: "'TE Connectivity/Holsworthy'".to_owned(),
                 },
                 EntryField {
                     id: "OHMS".to_owned(),
-                    value: "3.9e1".to_owned()
+                    value: "3.9e1".to_owned(),
                 },
                 EntryField {
                     id: "WATTS".to_owned(),
-                    value: "2e0".to_owned()
+                    value: "2e0".to_owned(),
                 },
                 EntryField {
                     id: "TOLERANCE".to_owned(),
-                    value: "1e1".to_owned()
+                    value: "1e1".to_owned(),
                 },
                 EntryField {
                     id: "PPM_C".to_owned(),
-                    value: "-8e2".to_owned()
+                    value: "-8e2".to_owned(),
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'Through Hole'".to_owned()
+                    value: "'Through Hole'".to_owned(),
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Ceramic Comp'".to_owned()
+                    value: "'Ceramic Comp'".to_owned(),
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'19.1x7.9 Axial'".to_owned()
+                    value: "'19.1x7.9 Axial'".to_owned(),
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
-                    value: "'https://www.mouser.com/datasheet/2/418/8/ENG_DS_1773193_1_B-2888555.pdf'".to_owned()
-                }
-            ]
+                    value:
+                        "'https://www.mouser.com/datasheet/2/418/8/ENG_DS_1773193_1_B-2888555.pdf'"
+                            .to_owned(),
+                },
+            ],
         }
     }
 
@@ -1003,43 +1068,43 @@ pub mod tests {
             created: 0,
             modified: 0,
             fields: vec![
-                EntryField{
+                EntryField {
                     id: "MPN".to_owned(),
-                    value: "'HPCR0819AK39RST'".to_owned()
+                    value: "'HPCR0819AK39RST'".to_owned(),
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'Vishay'".to_owned()
+                    value: "'Vishay'".to_owned(),
                 },
                 EntryField {
                     id: "FARADS".to_owned(),
-                    value: "1.2e-3".to_owned()
+                    value: "1.2e-3".to_owned(),
                 },
                 EntryField {
                     id: "VOLTAGE_DC".to_owned(),
-                    value: "3.5e1".to_owned()
+                    value: "3.5e1".to_owned(),
                 },
                 EntryField {
                     id: "TOLERANCE".to_owned(),
-                    value: "2e-1".to_owned()
+                    value: "2e-1".to_owned(),
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'Through Hole'".to_owned()
+                    value: "'Through Hole'".to_owned(),
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Aluminum Electrolytic'".to_owned()
+                    value: "'Aluminum Electrolytic'".to_owned(),
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'25x12.5 Radial'".to_owned()
+                    value: "'25x12.5 Radial'".to_owned(),
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
-                    value: "'https://www.vishay.com/doc?28499'".to_owned()
-                }
-            ]
+                    value: "'https://www.vishay.com/doc?28499'".to_owned(),
+                },
+            ],
         }
     }
 
@@ -1053,47 +1118,49 @@ pub mod tests {
             created: 0,
             modified: 0,
             fields: vec![
-                EntryField{
+                EntryField {
                     id: "MPN".to_owned(),
-                    value: "'MC08EA220J-TF'".to_owned()
+                    value: "'MC08EA220J-TF'".to_owned(),
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'Cornell Dubilier - CDE'".to_owned()
+                    value: "'Cornell Dubilier - CDE'".to_owned(),
                 },
                 EntryField {
                     id: "FARADS".to_owned(),
-                    value: "2.2e-13".to_owned()
+                    value: "2.2e-13".to_owned(),
                 },
                 EntryField {
                     id: "VOLTAGE_DC".to_owned(),
-                    value: "1e2".to_owned()
+                    value: "1e2".to_owned(),
                 },
                 EntryField {
                     id: "VOLTAGE_AC".to_owned(),
-                    value: "7e1".to_owned()
+                    value: "7e1".to_owned(),
                 },
                 EntryField {
                     id: "TOLERANCE".to_owned(),
-                    value: "5e-2".to_owned()
+                    value: "5e-2".to_owned(),
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'SMD'".to_owned()
+                    value: "'SMD'".to_owned(),
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Mica'".to_owned()
+                    value: "'Mica'".to_owned(),
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'0805'".to_owned()
+                    value: "'0805'".to_owned(),
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
-                    value: "'https://www.mouser.com/datasheet/2/88/CDUB_S_A0011956908_1-2540249.pdf'".to_owned()
-                }
-            ]
+                    value:
+                        "'https://www.mouser.com/datasheet/2/88/CDUB_S_A0011956908_1-2540249.pdf'"
+                            .to_owned(),
+                },
+            ],
         }
     }
 
@@ -1117,7 +1184,7 @@ pub mod tests {
     #[test]
     fn test_db_new_catagory() {
         let mut catagory = Catagory::new("resistor");
-        
+
         catagory.add_field(CatagoryField::from_str("mpn:t").unwrap());
         catagory.add_field(CatagoryField::from_str("mfcd_by:t").unwrap());
         catagory.add_field(CatagoryField::from_str("ohms:r").unwrap());
@@ -1128,15 +1195,15 @@ pub mod tests {
         catagory.add_field(CatagoryField::from_str("makeup:t").unwrap());
         catagory.add_field(CatagoryField::from_str("case_code:t").unwrap());
         catagory.add_field(CatagoryField::from_str("datasheet:t").unwrap());
-        
+
         assert_eq!(catagory, test_catagory_a());
     }
     // Test adding a catagory to a database
     #[test]
     fn test_db_add_catagory() {
         let mut db = Db::_new_test();
-        let catagory_a = test_catagory_a(); 
-        let catagory_b = test_catagory_b(); 
+        let catagory_a = test_catagory_a();
+        let catagory_b = test_catagory_b();
 
         // Shouldn't fail the first time
         db.add_catagory(catagory_a.clone()).unwrap();
@@ -1169,7 +1236,7 @@ pub mod tests {
     #[test]
     fn test_db_add_entry() {
         let mut db = Db::_new_test();
-        
+
         db.add_catagory(test_catagory_b()).unwrap();
 
         // test entry 0 belongs to catagory a, so this should return an error
@@ -1194,7 +1261,7 @@ pub mod tests {
 
         // Add a different type of entry to a different catagory
         db.add_entry(test_entry_2()).unwrap();
-        
+
         // Add another entry to catagory b
         db.add_entry(test_entry_3()).unwrap();
 
@@ -1215,15 +1282,15 @@ pub mod tests {
         // Add the catagories and entries we need
         db.add_catagory(test_catagory_a()).unwrap();
         db.add_catagory(test_catagory_b()).unwrap();
-        
+
         // Should still fail
         db.grab_entry(0).unwrap_err();
-        
+
         db.add_entry(test_entry_0()).unwrap();
         db.add_entry(test_entry_1()).unwrap();
 
         // Grab the first entry by it's key
-        
+
         let entry_0 = db.grab_entry(0).unwrap();
 
         assert_eq!(entry_0, test_entry_0());
@@ -1263,8 +1330,9 @@ pub mod tests {
         //      {field_2_id} = {field_2_val},
         //      ...
         //      {field_x_id} = {field_x_val}
-        
-        let test_string: String = format!(r#"ENTRY 0, CATAGORY RESISTOR:
+
+        let test_string: String = format!(
+            r#"ENTRY 0, CATAGORY RESISTOR:
     LOCATION   = 'bazville',
     QUANTITY   = 10,
     CREATED    = {time},
@@ -1279,7 +1347,8 @@ pub mod tests {
     MAKEUP     = 'Thick Film',
     CASE_CODE  = '1206',
     DATASHEET  = 'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'"#,
-    time = Local.timestamp(0, 0).to_string());
+            time = Local.timestamp(0, 0).to_string()
+        );
 
         assert_eq!(test_string, format!("{}", test_entry_0()));
     }
@@ -1293,9 +1362,19 @@ pub mod tests {
         db.add_entry(test_entry_0()).unwrap();
         db.add_entry(test_entry_1()).unwrap();
 
-        assert_eq!(db.search_catagory("RESISTOR", vec!["ohms=8.2e6"]).unwrap()[0], test_entry_0());
+        assert_eq!(
+            db.search_catagory("RESISTOR", vec!["ohms=8.2e6"]).unwrap()[0],
+            test_entry_0()
+        );
 
-        assert_eq!(db.search_catagory("RESISTOR", vec!["makeup='Thick Film'", "makeup='Ceramic Comp'"]).unwrap(), vec![test_entry_0(), test_entry_1()]);
+        assert_eq!(
+            db.search_catagory(
+                "RESISTOR",
+                vec!["makeup='Thick Film'", "makeup='Ceramic Comp'"]
+            )
+            .unwrap(),
+            vec![test_entry_0(), test_entry_1()]
+        );
     }
 
     #[test]
@@ -1304,23 +1383,26 @@ pub mod tests {
 
         db.add_catagory(test_catagory_a()).unwrap();
 
-        assert_eq!(db.grab_catagory_fields("RESISTOR").unwrap(), vec![
-            "KEY",
-            "LOCATION",
-            "QUANTITY",
-            "CREATED",
-            "MODIFIED",
-            "MPN",
-            "MFCD_BY",
-            "OHMS",
-            "WATTS",
-            "TOLERANCE",
-            "PPM_C",
-            "TERM_STYLE",
-            "MAKEUP",
-            "CASE_CODE",
-            "DATASHEET"
-        ]);
+        assert_eq!(
+            db.grab_catagory_fields("RESISTOR").unwrap(),
+            vec![
+                "KEY",
+                "LOCATION",
+                "QUANTITY",
+                "CREATED",
+                "MODIFIED",
+                "MPN",
+                "MFCD_BY",
+                "OHMS",
+                "WATTS",
+                "TOLERANCE",
+                "PPM_C",
+                "TERM_STYLE",
+                "MAKEUP",
+                "CASE_CODE",
+                "DATASHEET"
+            ]
+        );
     }
 
     #[test]
@@ -1333,12 +1415,13 @@ pub mod tests {
 
         assert_eq!(db.grab_entry(0).unwrap(), test_entry_0());
 
-        db.mod_entry(0, vec![EntryField::from_str("quantity=9").unwrap()]).unwrap();
+        db.mod_entry(0, vec![EntryField::from_str("quantity=9").unwrap()])
+            .unwrap();
 
         assert_eq!(db.grab_entry(0).unwrap().quantity, 9);
 
         // Test taking and giving
-    
+
         db.give(0, 1).unwrap();
 
         assert_eq!(db.grab_entry(0).unwrap().quantity, 10);

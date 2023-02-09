@@ -1,9 +1,15 @@
-
-use cursive::Cursive;
-use cursive::CursiveExt;
-use cursive::View;
-use cursive::event::Key;
+use crate::b64;
+use crate::db;
+use crate::db::Catagory;
+use crate::db::CatagoryField;
+use crate::db::Db;
+use crate::db::Entry;
+use crate::db::EntryField;
+use chrono::{Local, TimeZone};
+use cursive::align::HAlign;
+use cursive::align::VAlign;
 use cursive::event::Event;
+use cursive::event::Key;
 use cursive::menu::Item;
 use cursive::view::Nameable;
 use cursive::view::Resizable;
@@ -16,20 +22,13 @@ use cursive::views::ListView;
 use cursive::views::Menubar;
 use cursive::views::ScrollView;
 use cursive::views::SelectView;
-use cursive::align::HAlign;
-use cursive::align::VAlign;
 use cursive::views::TextView;
 use cursive::views::ViewRef;
-use chrono::{Local, TimeZone};
-use crate::b64;
-use crate::db;
-use crate::db::Catagory;
-use crate::db::CatagoryField;
-use crate::db::Entry;
-use crate::db::EntryField;
-use std::error::Error;
+use cursive::Cursive;
+use cursive::CursiveExt;
+use cursive::View;
 use std::cmp;
-use crate::db::Db;
+use std::error::Error;
 
 // ID of the list view
 static TUI_LIST_ID: &str = "list";
@@ -68,15 +67,25 @@ pub struct Tui {
 
 impl Tui {
     pub fn new(db: Db) -> Result<Self, Box<dyn Error>> {
-        let mut tui = Self {cursive: Cursive::new()};
+        let mut tui = Self {
+            cursive: Cursive::new(),
+        };
 
-        let tui_cache = TuiCache {catagory_selected: String::new(), catagories_queried: vec![], in_dialog: false, db: db, fields_edited: vec![String::new()], entries_queried: Vec::new(), entry_selected: 0};
+        let tui_cache = TuiCache {
+            catagory_selected: String::new(),
+            catagories_queried: vec![],
+            in_dialog: false,
+            db: db,
+            fields_edited: vec![String::new()],
+            entries_queried: Vec::new(),
+            entry_selected: 0,
+        };
 
         tui.cursive.set_user_data(tui_cache);
 
         tui.prime(); // Prime all event handlers
         tui.layout(); // Lay out all the views
-        
+
         Ok(tui)
     }
 
@@ -89,22 +98,32 @@ impl Tui {
         // Bind escape to a special function which will either exit entry view or exit the program,
         // depending on what view we're in. Make it a post binding since we only want it to trigger
         // when in either catagory or entry view, not in creation dialogs or etc.
-        self.cursive.set_on_post_event(Event::Key(Key::Esc), |cursive| Self::escape(cursive));
+        self.cursive
+            .set_on_post_event(Event::Key(Key::Esc), |cursive| Self::escape(cursive));
 
         // Bind a to add mode
-        self.cursive.set_on_post_event(Event::Char('a'), |cursive| Self::add_dialog(cursive));
+        self.cursive
+            .set_on_post_event(Event::Char('a'), |cursive| Self::add_dialog(cursive));
 
         // Bind + and - to give and take mode
-        self.cursive.set_on_post_event(Event::Char('+'), |cursive| Self::give_take_dialog(cursive, true));
-        self.cursive.set_on_post_event(Event::Char('-'), |cursive| Self::give_take_dialog(cursive, false));
+        self.cursive.set_on_post_event(Event::Char('+'), |cursive| {
+            Self::give_take_dialog(cursive, true)
+        });
+        self.cursive.set_on_post_event(Event::Char('-'), |cursive| {
+            Self::give_take_dialog(cursive, false)
+        });
 
         // Bind del to delete mode
-        self.cursive.set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
+        self.cursive
+            .set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
     }
 
     fn layout(&mut self) {
         // List view is the primary(unchangin) view for displaying data
-        let list_view: SelectView<usize> = SelectView::new().on_submit(|cursive, index| Self::list_view_on_submit(cursive, *index)).h_align(HAlign::Left).v_align(VAlign::Top);
+        let list_view: SelectView<usize> = SelectView::new()
+            .on_submit(|cursive, index| Self::list_view_on_submit(cursive, *index))
+            .h_align(HAlign::Left)
+            .v_align(VAlign::Top);
 
         // The scroll view for exclusively vertical scrolling of the list view
         let list_view_scroll = ScrollView::new(list_view.with_name(TUI_LIST_ID));
@@ -113,20 +132,26 @@ impl Tui {
         let list_view_header = TextView::new("").with_name(TUI_LIST_HEADER_ID);
 
         // Align everything vertically...
-        let list_layout = LinearLayout::vertical().child(list_view_header).child(list_view_scroll);
+        let list_layout = LinearLayout::vertical()
+            .child(list_view_header)
+            .child(list_view_scroll);
 
         // And wrap it in a horizontal scroll...
         let list_layout_scroll = ScrollView::new(list_layout).scroll_y(false).scroll_x(true);
 
         // Finally the status header which just displays program status
-        let status_header = TextView::new("Loading...").center().with_name(TUI_STATUS_HEADER_ID);
+        let status_header = TextView::new("Loading...")
+            .center()
+            .with_name(TUI_STATUS_HEADER_ID);
 
         self.cursive.clear();
 
-        let mut layout = LinearLayout::vertical().child(status_header).child(list_layout_scroll);
+        let mut layout = LinearLayout::vertical()
+            .child(status_header)
+            .child(list_layout_scroll);
 
         layout.focus_view(&Selector::Name(TUI_LIST_ID)).unwrap();
-        
+
         self.cursive.add_fullscreen_layer(layout.full_width());
     }
 
@@ -149,9 +174,10 @@ impl Tui {
     fn populate_with_catagories(cursive: &mut Cursive) {
         // Grab all the views needed
         let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
-        let mut list_view_header: ViewRef<TextView> = cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
+        let mut list_view_header: ViewRef<TextView> =
+            cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
         let mut status_header: ViewRef<TextView> = cursive.find_name(TUI_STATUS_HEADER_ID).unwrap();
-        
+
         list_view.clear();
 
         // Grab the cache
@@ -186,11 +212,12 @@ impl Tui {
     fn populate_with_entries(cursive: &mut Cursive, catagory_name: &str) {
         // Grab all the views needed
         let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
-        let mut list_view_header: ViewRef<TextView> = cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
+        let mut list_view_header: ViewRef<TextView> =
+            cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
         let mut status_header: ViewRef<TextView> = cursive.find_name(TUI_STATUS_HEADER_ID).unwrap();
 
         list_view.clear();
-        
+
         // Grab the cache
         let cache = match cursive.user_data::<TuiCache>() {
             Some(cache) => cache,
@@ -202,7 +229,10 @@ impl Tui {
         // Set the status to inform the user that they're in entry view
         status_header.set_content(&format!("ENTRY VIEW (CATAGORY={})", catagory_name));
 
-        let entries = cache.db.search_catagory(&catagory_name, vec!["KEY>=0"]).unwrap();
+        let entries = cache
+            .db
+            .search_catagory(&catagory_name, vec!["KEY>=0"])
+            .unwrap();
 
         // Grab the catagory's field headers
         let headers = cache.db.grab_catagory_fields(&catagory_name).unwrap();
@@ -285,13 +315,10 @@ impl Tui {
             return;
         }
 
-
         // See whether we're in catagory or entry view, and choose the correct dialog accordingly
         if cache.catagory_selected.len() == 0 {
             Self::add_catagory_dialog(cursive);
-        }
-
-        else {
+        } else {
             Self::add_entry_dialog(cursive);
         }
     }
@@ -308,11 +335,15 @@ impl Tui {
         cache.in_dialog = true;
 
         let name_view = TextView::new("Name: ");
-        let name_edit = EditView::new().with_name(TUI_CATAGORY_NAME_ID).fixed_width(TUI_FIELD_ENTRY_WIDTH);
+        let name_edit = EditView::new()
+            .with_name(TUI_CATAGORY_NAME_ID)
+            .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
         let name_row = LinearLayout::horizontal().child(name_view).child(name_edit);
 
-        let add_field_button = Button::new("Add Field", |cursive| Self::add_catagory_field_dialog(cursive));
+        let add_field_button = Button::new("Add Field", |cursive| {
+            Self::add_catagory_field_dialog(cursive)
+        });
 
         let field_list = TextView::new("").with_name(TUI_FIELD_LIST_ID);
 
@@ -323,14 +354,17 @@ impl Tui {
 
         let dialog = Dialog::around(layout)
             .title("Add Catagory")
-            .button("Add Catagory", |cursive| Self::add_catagory_dialog_submit(cursive));
+            .button("Add Catagory", |cursive| {
+                Self::add_catagory_dialog_submit(cursive)
+            });
 
         cursive.add_layer(dialog);
     }
 
     fn add_catagory_dialog_submit(cursive: &mut Cursive) {
         // Grab the views we need
-        let catagory_name_view: ViewRef<EditView> = cursive.find_name(TUI_CATAGORY_NAME_ID).unwrap();
+        let catagory_name_view: ViewRef<EditView> =
+            cursive.find_name(TUI_CATAGORY_NAME_ID).unwrap();
         let field_list_view: ViewRef<TextView> = cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
 
         // Grab the cache
@@ -371,12 +405,12 @@ impl Tui {
         };
 
         // We are already in a dialog so we don't need to set cache.in_dialog
-        
+
         let name_view = TextView::new("Name: ");
-        let name_edit = EditView::new().with_name(TUI_FIELD_NAME_ID).fixed_width(TUI_FIELD_ENTRY_WIDTH);
-        let name_row = LinearLayout::horizontal()
-            .child(name_view)
-            .child(name_edit);
+        let name_edit = EditView::new()
+            .with_name(TUI_FIELD_NAME_ID)
+            .fixed_width(TUI_FIELD_ENTRY_WIDTH);
+        let name_row = LinearLayout::horizontal().child(name_view).child(name_edit);
 
         let type_view = TextView::new("Type: ");
         let type_menu = SelectView::<db::DataType>::new()
@@ -388,18 +422,19 @@ impl Tui {
             .child(type_view)
             .child(type_menu.with_name(TUI_TYPE_MENU_ID));
 
-        let layout = LinearLayout::vertical()
-            .child(name_row)
-            .child(type_row);
+        let layout = LinearLayout::vertical().child(name_row).child(type_row);
 
-        let dialog = Dialog::around(layout).button("Add Field", |cursive| Self::add_catagory_field_submit(cursive));
+        let dialog = Dialog::around(layout).button("Add Field", |cursive| {
+            Self::add_catagory_field_submit(cursive)
+        });
 
         cursive.add_layer(dialog);
     }
 
     fn add_catagory_field_submit(cursive: &mut Cursive) {
         // Grab the views we need
-        let type_menu_view: ViewRef<SelectView<db::DataType>> = cursive.find_name(TUI_TYPE_MENU_ID).unwrap();
+        let type_menu_view: ViewRef<SelectView<db::DataType>> =
+            cursive.find_name(TUI_TYPE_MENU_ID).unwrap();
         let mut field_list_view: ViewRef<TextView> = cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
         let field_name_view: ViewRef<EditView> = cursive.find_name(TUI_FIELD_NAME_ID).unwrap();
 
@@ -435,10 +470,13 @@ impl Tui {
         };
 
         cache.in_dialog = true;
-        
+
         let mut layout = LinearLayout::vertical();
 
-        let fields = cache.db.grab_catagory_fields(&cache.catagory_selected).unwrap();
+        let fields = cache
+            .db
+            .grab_catagory_fields(&cache.catagory_selected)
+            .unwrap();
 
         // Remove created and modified because they are autogenerated
         let fields_a: Vec<String> = fields[..3].into();
@@ -454,18 +492,23 @@ impl Tui {
         for field in &fields {
             max_size = cmp::max(max_size, field.len())
         }
-        
+
         for (i, field) in fields.iter().enumerate() {
             let field = format!("{}:", field);
             let field_id = TextView::new(format!("{:<width$}", field, width = max_size + 2));
-            let field_entry = EditView::new().on_edit(move |cursive, string, _| {Self::edit_field(cursive, string, i)}).fixed_width(TUI_FIELD_ENTRY_WIDTH);
+            let field_entry = EditView::new()
+                .on_edit(move |cursive, string, _| Self::edit_field(cursive, string, i))
+                .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
-            let row = LinearLayout::horizontal().child(field_id).child(field_entry);
+            let row = LinearLayout::horizontal()
+                .child(field_id)
+                .child(field_entry);
 
             layout.add_child(row);
         }
 
-        let dialog = Dialog::around(layout).title(format!("Add entry to {}...", cache.catagory_selected))
+        let dialog = Dialog::around(layout)
+            .title(format!("Add entry to {}...", cache.catagory_selected))
             .button("Add", |cursive| Self::add_entry_submit(cursive));
 
         cursive.add_layer(dialog);
@@ -493,17 +536,30 @@ impl Tui {
         };
 
         // Ignore the first 5 fields we won't need them
-        let fields = &cache.db.grab_catagory_fields(&cache.catagory_selected).unwrap()[5..];
-        let types = &cache.db.grab_catagory_types(&cache.catagory_selected).unwrap()[5..];
-        
+        let fields = &cache
+            .db
+            .grab_catagory_fields(&cache.catagory_selected)
+            .unwrap()[5..];
+        let types = &cache
+            .db
+            .grab_catagory_types(&cache.catagory_selected)
+            .unwrap()[5..];
+
         let key = b64::to_u64(&cache.fields_edited[0]);
         let location = &cache.fields_edited[1];
         let quantity: u64 = cache.fields_edited[2].parse().unwrap();
         let created = Local::now().timestamp();
         let modified = created;
 
-        let mut entry = Entry::new(&cache.catagory_selected, key, location, quantity, created, modified);
-        
+        let mut entry = Entry::new(
+            &cache.catagory_selected,
+            key,
+            location,
+            quantity,
+            created,
+            modified,
+        );
+
         for (i, value) in cache.fields_edited[3..].iter().enumerate() {
             if value.len() > 0 {
                 let value_sql: String = match types[i] {
@@ -527,7 +583,6 @@ impl Tui {
     }
 
     fn give_take_dialog(cursive: &mut Cursive, give: bool) {
-        
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
         // Grab the cache
@@ -546,7 +601,7 @@ impl Tui {
         // Get the entry to give or take from
         let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
         let entry = &cache.entries_queried[entry_pos];
-        
+
         // Get the quantity
         let quantity = entry.quantity;
 
@@ -563,19 +618,23 @@ impl Tui {
         cache.fields_edited = vec!["1".to_string()];
 
         cache.in_dialog = true;
-        
 
         let old_quantity_view = TextView::new(format!("Old Quantity: {}", quantity));
 
         // Create the entry row
         let quantity_entry_view = TextView::new(format!("{}: ", give_or_take));
 
-        let give_take_edit = EditView::new().content("1").on_edit(move |cursive, string, _| {
-            Self::edit_field(cursive, string, 0);
-            Self::give_take_dialog_update(cursive, give);
-        }).fixed_width(TUI_FIELD_ENTRY_WIDTH);
+        let give_take_edit = EditView::new()
+            .content("1")
+            .on_edit(move |cursive, string, _| {
+                Self::edit_field(cursive, string, 0);
+                Self::give_take_dialog_update(cursive, give);
+            })
+            .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
-        let entry_row = LinearLayout::horizontal().child(quantity_entry_view).child(give_take_edit);
+        let entry_row = LinearLayout::horizontal()
+            .child(quantity_entry_view)
+            .child(give_take_edit);
 
         // Create the updating "New Quantity" View
         let new_quantity = match give {
@@ -583,7 +642,8 @@ impl Tui {
             false => quantity - 1,
         };
 
-        let new_quantity_view = TextView::new(format!("New Quantity: {}", new_quantity)).with_name(TUI_NEW_QUANTITY_ID);
+        let new_quantity_view =
+            TextView::new(format!("New Quantity: {}", new_quantity)).with_name(TUI_NEW_QUANTITY_ID);
 
         // Lay it all out together vertically
         let layout = LinearLayout::vertical()
@@ -592,15 +652,23 @@ impl Tui {
             .child(new_quantity_view);
 
         let dialog = Dialog::around(layout)
-            .title(format!("{} {} {}", give_or_take, to_or_from, b64::from_u64(entry.key)))
-            .button(give_or_take, move |cursive| Self::give_take_dialog_submit(cursive, give));
+            .title(format!(
+                "{} {} {}",
+                give_or_take,
+                to_or_from,
+                b64::from_u64(entry.key)
+            ))
+            .button(give_or_take, move |cursive| {
+                Self::give_take_dialog_submit(cursive, give)
+            });
 
         cache.entry_selected = entry_pos;
         cursive.add_layer(dialog);
     }
 
     fn give_take_dialog_update(cursive: &mut Cursive, give: bool) {
-        let mut new_quantity_view: ViewRef<TextView> = cursive.find_name(TUI_NEW_QUANTITY_ID).unwrap();
+        let mut new_quantity_view: ViewRef<TextView> =
+            cursive.find_name(TUI_NEW_QUANTITY_ID).unwrap();
 
         // Grab the cache
         let mut cache = match cursive.user_data::<TuiCache>() {
@@ -626,11 +694,10 @@ impl Tui {
             false => {
                 if entry.quantity > give_take_amt {
                     entry.quantity - give_take_amt
-                }
-                else {
+                } else {
                     0
                 }
-            },
+            }
         };
 
         new_quantity_view.set_content(format!("New Quantity: {}", quantity));
@@ -644,7 +711,7 @@ impl Tui {
                 panic!("Failed to initialize Cursive instance with cache! this should not happen!");
             }
         };
-        
+
         let give_take_amt: u64 = match cache.fields_edited[0].parse() {
             Ok(number) => number,
             Err(_) => {
@@ -661,14 +728,19 @@ impl Tui {
             false => {
                 if entry.quantity > give_take_amt {
                     entry.quantity - give_take_amt
-                }
-                else {
+                } else {
                     0
                 }
-            },
+            }
         };
 
-        cache.db.mod_entry(entry.key, vec![EntryField::new("QUANTITY", &quantity.to_string())]).unwrap();
+        cache
+            .db
+            .mod_entry(
+                entry.key,
+                vec![EntryField::new("QUANTITY", &quantity.to_string())],
+            )
+            .unwrap();
 
         cache.in_dialog = false;
 
@@ -730,7 +802,6 @@ impl Tui {
             }
         };
 
-
         cache.db.delete_entry(key).unwrap();
 
         let catagory = cache.catagory_selected.clone();
@@ -742,9 +813,11 @@ impl Tui {
 
     fn exit_dialog(cursive: &mut Cursive) {
         let exit_dialog = Dialog::text("Are You Sure You Want To Exit?")
-            .button("No...", |cursive| {cursive.pop_layer().unwrap();})
+            .button("No...", |cursive| {
+                cursive.pop_layer().unwrap();
+            })
             .button("Yes!", |cursive| cursive.quit());
-        
+
         cursive.add_layer(exit_dialog);
     }
 
@@ -771,20 +844,29 @@ impl Tui {
         let mut out_string = String::with_capacity(out_string_size);
 
         for (i, header) in headers.iter().enumerate() {
-            out_string.push_str(&format!("{:<width$}{}", header, TUI_COLUMN_PADDING, width = column_widths[i]));
+            out_string.push_str(&format!(
+                "{:<width$}{}",
+                header,
+                TUI_COLUMN_PADDING,
+                width = column_widths[i]
+            ));
         }
 
         out_strings.push(out_string);
-        
+
         for row in table {
             let mut out_string = String::with_capacity(out_string_size);
-            
+
             for (i, column) in row.iter().enumerate() {
-                out_string.push_str(&format!("{:<width$}{}", column, TUI_COLUMN_PADDING, width = column_widths[i]));
+                out_string.push_str(&format!(
+                    "{:<width$}{}",
+                    column,
+                    TUI_COLUMN_PADDING,
+                    width = column_widths[i]
+                ));
             }
 
             out_strings.push(out_string);
-
         }
 
         out_strings

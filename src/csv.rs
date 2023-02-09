@@ -1,9 +1,9 @@
-use std::error::Error;
-use csv::ReaderBuilder;
-use simple_error::bail;
 use crate::b64;
 use crate::db::{Entry, EntryField};
 use chrono::Local;
+use csv::ReaderBuilder;
+use simple_error::bail;
+use std::error::Error;
 
 pub fn csv_to_entries(file_name: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
     let mut entries = Vec::<Entry>::new();
@@ -27,12 +27,13 @@ pub fn csv_to_entries(file_name: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
     };
 
     eprintln!("{}", catagory);
-    
+
     // Next, get the names of the fields
     let fields: Vec<String> = match csv_records.next() {
-        Some(result) => {
-            result?.iter().map(|field| field.to_uppercase().to_owned().replace("'", "")).collect()
-        }
+        Some(result) => result?
+            .iter()
+            .map(|field| field.to_uppercase().to_owned().replace("'", ""))
+            .collect(),
         None => {
             bail!("Missing field definitions!");
         }
@@ -73,7 +74,7 @@ pub fn csv_to_entries(file_name: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
             &location,
             quantity,
             Local::now().timestamp(),
-            Local::now().timestamp()
+            Local::now().timestamp(),
         );
 
         for field in entry_fields {
@@ -92,8 +93,8 @@ pub fn csv_to_entries(file_name: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Db;
     use crate::db;
+    use crate::db::Db;
     use serial_test::*;
 
     // Test reading the test.csv file

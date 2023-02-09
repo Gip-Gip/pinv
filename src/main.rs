@@ -1,11 +1,11 @@
-use clap::{arg, Command, command};
-use std::fs;
-use std::io::stdin;
-use pinv::db::{Db, Catagory, CatagoryField, Entry, EntryField};
+use chrono::Local;
+use clap::{arg, command, Command};
+use pinv::db::{Catagory, CatagoryField, Db, Entry, EntryField};
 use pinv::tui::Tui;
 use pinv::{b64, csv};
-use chrono::Local;
 use std::error::Error;
+use std::fs;
+use std::io::stdin;
 
 fn confirm() -> bool {
     println!("Confirm?(y/n)");
@@ -15,7 +15,7 @@ fn confirm() -> bool {
     stdin().read_line(&mut answer).unwrap();
 
     if answer.trim() == "y" {
-        return true
+        return true;
     }
     eprintln!("'y' not selected, aborted!");
     false
@@ -32,14 +32,13 @@ fn main() {
             arg!(-c --catagory <CATAGORY> "catagory to insert the entry in").required(true),
             arg!(-l --location <LOCATION> "location the entry will be stored in").required(true),
             arg!(-q --quantity <QUANTITY> "quantity of the entry to be stored").required(true),
-            arg!([FIELD] ... "foo")
+            arg!([FIELD] ... "foo"),
         ]))
-        .subcommand(Command::new("import_csv").args(&[
-            arg!([FILE] "csv file to import")
-        ]))
-        .subcommand(Command::new("grab").args(&[
-            arg!([KEY] "key of the entry to be grabbed").required(true)
-        ]))
+        .subcommand(Command::new("import_csv").args(&[arg!([FILE] "csv file to import")]))
+        .subcommand(
+            Command::new("grab")
+                .args(&[arg!([KEY] "key of the entry to be grabbed").required(true)]),
+        )
         .subcommand(Command::new("add_catagory").args(&[
             arg!([FIELD] ... "field to add to the catagory").required(true),
             arg!(-c --catagory <CATAGORY> ... "catagory to add").required(true),
@@ -48,22 +47,21 @@ fn main() {
             arg!(-c --catagory <CATAGORY> "Catagory to list").required(true),
             arg!([CONSTRAINTS] ... "all the constraints").required(true),
         ]))
-        .subcommand(Command::new("delete").args(&[
-            arg!([KEY] "key of the entry to delete")
-        ]))
+        .subcommand(Command::new("delete").args(&[arg!([KEY] "key of the entry to delete")]))
         .subcommand(Command::new("take").args(&[
             arg!([QUANTITY] "quantity to take from the entry").required(true),
-            arg!(-k --key <KEY> "key of the entry to take from").required(true)
+            arg!(-k --key <KEY> "key of the entry to take from").required(true),
         ]))
         .subcommand(Command::new("give").args(&[
             arg!([QUANTITY] "quantity to give to the entry").required(true),
-            arg!(-k --key <KEY> "key of the entry to give to").required(true)
+            arg!(-k --key <KEY> "key of the entry to give to").required(true),
         ]))
         .subcommand(Command::new("fill_template").args(&[
             arg!([IN] "template file").required(true),
             arg!(-o --out <FILE> "output file").required(true),
         ]))
-        .subcommand(Command::new("tui")).get_matches();
+        .subcommand(Command::new("tui"))
+        .get_matches();
 
     match matches.subcommand() {
         Some(("tui", _)) => {
@@ -77,10 +75,21 @@ fn main() {
             let key = b64::to_u64(matches.get_one::<String>("key").unwrap().as_str());
             let catagory = matches.get_one::<String>("catagory").unwrap();
             let location = matches.get_one::<String>("location").unwrap();
-            let quantity = matches.get_one::<String>("quantity").unwrap().parse::<u64>().unwrap();
+            let quantity = matches
+                .get_one::<String>("quantity")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
             let fields: Vec<&String> = matches.get_many::<String>("FIELD").unwrap().collect();
 
-            let mut entry = Entry::new(catagory, key, location, quantity, Local::now().timestamp(), Local::now().timestamp());
+            let mut entry = Entry::new(
+                catagory,
+                key,
+                location,
+                quantity,
+                Local::now().timestamp(),
+                Local::now().timestamp(),
+            );
 
             for field in fields {
                 entry.add_field(EntryField::from_str(field).unwrap());
@@ -89,9 +98,9 @@ fn main() {
             println!("{}", entry);
 
             if confirm() == false {
-                return
+                return;
             }
-            
+
             db.add_entry(entry).unwrap();
         }
         Some(("import_csv", matches)) => {
@@ -102,7 +111,7 @@ fn main() {
             for entry in entries {
                 println!("{}", entry);
                 if confirm() == false {
-                    return
+                    return;
                 }
                 db.add_entry(entry).unwrap();
             }
@@ -117,7 +126,7 @@ fn main() {
             println!("{}", db.grab_entry(key).unwrap());
 
             if confirm() == false {
-                return
+                return;
             }
 
             db.delete_entry(key).unwrap();
@@ -136,7 +145,7 @@ fn main() {
             println!("{}", catagory);
 
             if confirm() == false {
-                return
+                return;
             }
 
             db.add_catagory(catagory).unwrap();
@@ -156,7 +165,11 @@ fn main() {
         }
         Some(("take", matches)) => {
             let key = b64::to_u64(matches.get_one::<String>("key").unwrap().as_str());
-            let quantity = matches.get_one::<String>("QUANTITY").unwrap().parse::<u64>().unwrap();
+            let quantity = matches
+                .get_one::<String>("QUANTITY")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
 
             let entry = db.grab_entry(key).unwrap();
 
@@ -175,21 +188,29 @@ fn main() {
 
                 if confirm() == true {
                     db.delete_entry(key).unwrap();
-                    return
+                    return;
                 }
             }
 
             println!("Commit new quantity?");
-            
+
             if confirm() == false {
-                return
+                return;
             }
 
-            db.mod_entry(key, vec![EntryField::new("QUANTITY", &new_quantity.to_string())]).unwrap();
+            db.mod_entry(
+                key,
+                vec![EntryField::new("QUANTITY", &new_quantity.to_string())],
+            )
+            .unwrap();
         }
         Some(("give", matches)) => {
             let key = b64::to_u64(matches.get_one::<String>("key").unwrap().as_str());
-            let quantity = matches.get_one::<String>("QUANTITY").unwrap().parse::<u64>().unwrap();
+            let quantity = matches
+                .get_one::<String>("QUANTITY")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
 
             let entry = db.grab_entry(key).unwrap();
 
@@ -200,12 +221,16 @@ fn main() {
             println!("New Quantity:\t{}", new_quantity);
 
             println!("Commit new quantity?");
-            
+
             if confirm() == false {
-                return
+                return;
             }
 
-            db.mod_entry(key, vec![EntryField::new("QUANTITY", &new_quantity.to_string())]).unwrap();
+            db.mod_entry(
+                key,
+                vec![EntryField::new("QUANTITY", &new_quantity.to_string())],
+            )
+            .unwrap();
         }
         Some(("fill_template", matches)) => {
             let in_filename = matches.get_one::<String>("IN").unwrap();
