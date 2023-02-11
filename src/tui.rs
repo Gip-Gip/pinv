@@ -283,8 +283,8 @@ impl Tui {
         cache.entry_selected = 0;
 
         for (i, entry) in entries.iter().enumerate() {
-            let created_str = Local.timestamp(entry.created, 0).to_string();
-            let modified_str = Local.timestamp(entry.modified, 0).to_string();
+            let created_str = Local.timestamp_opt(entry.created, 0).unwrap().to_string();
+            let modified_str = Local.timestamp_opt(entry.modified, 0).unwrap().to_string();
 
             // If the key is equal to the one specified, select it
             if entry.key == key {

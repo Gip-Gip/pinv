@@ -280,8 +280,8 @@ impl fmt::Display for Entry {
             padlen = cmp::max(padlen, field.id.len());
         }
 
-        let created_str = Local.timestamp(self.created, 0).to_string();
-        let modified_str = Local.timestamp(self.modified, 0).to_string();
+        let created_str = Local.timestamp_opt(self.created, 0).unwrap().to_string();
+        let modified_str = Local.timestamp_opt(self.modified, 0).unwrap().to_string();
 
         let mut out: String = format!(
             r#"ENTRY {}, CATAGORY {}:
@@ -1405,7 +1405,7 @@ pub mod tests {
     MAKEUP     = 'Thick Film',
     CASE_CODE  = '1206',
     DATASHEET  = 'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'"#,
-            time = Local.timestamp(0, 0).to_string()
+            time = Local.timestamp_opt(0, 0).unwrap().to_string()
         );
 
         assert_eq!(test_string, format!("{}", test_entry_0()));
