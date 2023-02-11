@@ -184,12 +184,7 @@ impl Tui {
     /// Called when enter is pressed on a the entry/catagory list view.
     fn list_view_on_submit(cursive: &mut Cursive, index: usize) {
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Only do something if in catagory view
         if cache.catagory_selected.len() == 0 {
@@ -210,18 +205,26 @@ impl Tui {
         list_view.clear();
 
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Set the status to inform the user that they're in catagory view
         status_header.set_content("CATAGORY VIEW");
 
-        let catagories = cache.db.list_catagories().unwrap();
-        let catagory_table = cache.db.stat_catagories().unwrap();
+        let catagories = match cache.db.list_catagories() {
+            Ok(catagories) => catagories,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        let catagory_table = match cache.db.stat_catagories() {
+            Ok(catagory_table) => catagory_table,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
 
         let headers = vec!["NAME".to_string(), "ENTRIES".to_string()];
 
@@ -252,23 +255,27 @@ impl Tui {
         list_view.clear();
 
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Set the status to inform the user that they're in entry view
         status_header.set_content(&format!("ENTRY VIEW (CATAGORY={})", catagory_name));
 
-        let entries = cache
-            .db
-            .search_catagory(&catagory_name, vec!["KEY>=0"])
-            .unwrap();
+        let entries = match cache.db.search_catagory(&catagory_name, vec!["KEY>=0"]) {
+            Ok(entries) => entries,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
 
         // Grab the catagory's field headers
-        let headers = cache.db.grab_catagory_fields(&catagory_name).unwrap();
+        let headers = match cache.db.grab_catagory_fields(&catagory_name) {
+            Ok(headers) => headers,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
 
         // Convert the entries into a table
         let mut entry_table = Vec::<Vec<String>>::with_capacity(entries.len());
@@ -327,12 +334,7 @@ impl Tui {
     /// Function called when escape is pressed.
     fn escape(cursive: &mut Cursive) {
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         // If in a dialog, simply pop the dialog...
         if cache.in_dialog == true {
@@ -355,12 +357,7 @@ impl Tui {
     /// Dialog used to find an entry given only a key
     fn find_dialog(cursive: &mut Cursive) {
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // If we're already in a dialog, do nothing
         if cache.in_dialog == true {
@@ -387,12 +384,7 @@ impl Tui {
         let find_edit: ViewRef<EditView> = cursive.find_name(TUI_FIND_KEY_ID).unwrap();
 
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let key_str = find_edit.get_content();
         let key = b64::to_u64(&key_str);
@@ -400,7 +392,13 @@ impl Tui {
         // We don't need to find the exact entry at the moment, we just need to
         // find the catagory so we know which catagory to display the contents
         // of
-        let catagory_name = cache.db.grab_catagory_from_key(key).unwrap();
+        let catagory_name = match cache.db.grab_catagory_from_key(key) {
+            Ok(catagory_name) => catagory_name,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
 
         cache.in_dialog = false;
         cursive.pop_layer();
@@ -410,12 +408,7 @@ impl Tui {
     /// Dialog used to add either an entry or a catagory depending on the view.
     fn add_dialog(cursive: &mut Cursive) {
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         if cache.in_dialog == true {
             return;
@@ -432,12 +425,7 @@ impl Tui {
     /// Dialog used to add a catagory.
     fn add_catagory_dialog(cursive: &mut Cursive) {
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         cache.in_dialog = true;
 
@@ -477,12 +465,7 @@ impl Tui {
         let field_list_view: ViewRef<TextView> = cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
 
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let catagory_name = catagory_name_view.get_content();
         let field_list_content = field_list_view.get_content();
@@ -496,7 +479,13 @@ impl Tui {
 
         let catagory = Catagory::with_fields(&catagory_name, fields);
 
-        cache.db.add_catagory(catagory).unwrap();
+        match cache.db.add_catagory(catagory) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
 
         cache.in_dialog = false;
         cursive.pop_layer();
@@ -567,21 +556,19 @@ impl Tui {
     /// Dialog used to add an entry to the database.
     fn add_entry_dialog(cursive: &mut Cursive) {
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         cache.in_dialog = true;
 
         let mut layout = LinearLayout::vertical();
 
-        let fields = cache
-            .db
-            .grab_catagory_fields(&cache.catagory_selected)
-            .unwrap();
+        let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
+            Ok(fields) => fields,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
 
         // Remove created and modified because they are autogenerated
         let fields_a: Vec<String> = fields[..3].into();
@@ -623,12 +610,7 @@ impl Tui {
     /// future updates)
     fn edit_field(cursive: &mut Cursive, string: &str, number: usize) {
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         cache.fields_edited[number] = string.to_string();
     }
@@ -637,26 +619,38 @@ impl Tui {
     /// dialog.
     fn add_entry_submit(cursive: &mut Cursive) {
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Ignore the first 5 fields we won't need them
+        let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
+            Ok(fields) => fields,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
             }
         };
 
-        // Ignore the first 5 fields we won't need them
-        let fields = &cache
-            .db
-            .grab_catagory_fields(&cache.catagory_selected)
-            .unwrap()[5..];
-        let types = &cache
-            .db
-            .grab_catagory_types(&cache.catagory_selected)
-            .unwrap()[5..];
+        let fields = &fields[5..]; // Ignore the first 5 fields
+
+        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
+            Ok(types) => types,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        let types = &types[5..];
 
         let key = b64::to_u64(&cache.fields_edited[0]);
         let location = &cache.fields_edited[1];
-        let quantity: u64 = cache.fields_edited[2].parse().unwrap();
+        let quantity: u64 = match cache.fields_edited[2].parse() {
+            Ok(quantity) => quantity,
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
+                return;
+            }
+        };
         let created = Local::now().timestamp();
         let modified = created;
 
@@ -681,7 +675,13 @@ impl Tui {
 
         eprintln!("{}", entry.to_string());
 
-        cache.db.add_entry(entry).unwrap();
+        match cache.db.add_entry(entry) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        }
 
         let catagory = cache.catagory_selected.clone();
 
@@ -697,12 +697,7 @@ impl Tui {
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Return if already in a dialog or if not in entry mode
         if cache.in_dialog == true || cache.catagory_selected.len() == 0 {
@@ -783,12 +778,7 @@ impl Tui {
             cursive.find_name(TUI_NEW_QUANTITY_ID).unwrap();
 
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let give_take_amt: u64 = match cache.fields_edited[0].parse() {
             Ok(number) => number,
@@ -819,12 +809,7 @@ impl Tui {
     /// pressed.
     fn give_take_dialog_submit(cursive: &mut Cursive, give: bool) {
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         let give_take_amt: u64 = match cache.fields_edited[0].parse() {
             Ok(number) => number,
@@ -848,13 +833,16 @@ impl Tui {
             }
         };
 
-        cache
-            .db
-            .mod_entry(
-                entry.key,
-                vec![EntryField::new("QUANTITY", &quantity.to_string())],
-            )
-            .unwrap();
+        match cache.db.mod_entry(
+            entry.key,
+            vec![EntryField::new("QUANTITY", &quantity.to_string())],
+        ) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        }
 
         cache.in_dialog = false;
 
@@ -870,12 +858,7 @@ impl Tui {
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
         // Grab the cache
-        let cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Return if already in a dialog or if not in entry mode
         if cache.in_dialog == true || cache.catagory_selected.len() == 0 {
@@ -912,14 +895,15 @@ impl Tui {
     /// Deletes the entry if "Yes" is selected on the delete dialog.
     fn delete_dialog_submit(cursive: &mut Cursive, key: u64) {
         // Grab the cache
-        let mut cache = match cursive.user_data::<TuiCache>() {
-            Some(cache) => cache,
-            None => {
-                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-            }
-        };
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        cache.db.delete_entry(key).unwrap();
+        match cache.db.delete_entry(key) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        }
 
         let catagory = cache.catagory_selected.clone();
         cache.in_dialog = false;
@@ -990,6 +974,22 @@ impl Tui {
         }
 
         out_strings
+    }
+
+    /// Dialog presenting a non-fatal error
+    fn error_dialog(cursive: &mut Cursive, error: Box<dyn Error>) {
+        let dialog = Dialog::info(format!("{}", error)).title("Error!");
+
+        cursive.add_layer(dialog)
+    }
+
+    /// Dialog presenting a fatal error, and closes cursive when exited
+    fn fatal_error_dialog(cursive: &mut Cursive, error: Box<dyn Error>) {
+        let dialog = Dialog::text(format!("{}", error))
+            .button("Ok", |cursive| cursive.quit())
+            .title("Fatal Error!");
+
+        cursive.add_layer(dialog)
     }
 }
 
