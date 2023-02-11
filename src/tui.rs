@@ -19,6 +19,7 @@ use cursive::views::Button;
 use cursive::views::Dialog;
 use cursive::views::EditView;
 use cursive::views::LinearLayout;
+use cursive::views::NamedView;
 use cursive::views::ScrollView;
 use cursive::views::SelectView;
 use cursive::views::TextView;
@@ -58,7 +59,11 @@ static TUI_CATAGORY_NAME_ID: &str = "catagory_name";
 // ID of the type select view
 static TUI_TYPE_MENU_ID: &str = "type_menu";
 
+static TUI_FIND_KEY_ID: &str = "find_key";
+
 static TUI_FIELD_LIST_ID: &str = "field_list";
+
+static TUI_LIST_SCROLL_ID: &str = "list_scroll";
 
 /// Struct used for interfacing with the TUI. Uses the Cursive library.
 pub struct Tui {
@@ -108,6 +113,10 @@ impl Tui {
         self.cursive
             .set_on_post_event(Event::Char('a'), |cursive| Self::add_dialog(cursive));
 
+        // Bind f to find mode
+        self.cursive
+            .set_on_post_event(Event::Char('f'), |cursive| Self::find_dialog(cursive));
+
         // Bind + and - to give and take mode
         self.cursive.set_on_post_event(Event::Char('+'), |cursive| {
             Self::give_take_dialog(cursive, true)
@@ -119,6 +128,18 @@ impl Tui {
         // Bind del to delete mode
         self.cursive
             .set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
+
+        self.cursive.set_autorefresh(true);
+
+        // Focus on the currently selected entry, since it won't automatically
+        // scroll if using populate_with_entries_and_select
+        // !TODO! find a less hacky way to do this
+        self.cursive.set_on_pre_event(Event::Refresh, |cursive| {
+            let mut list_view_scroll: ViewRef<ScrollView<NamedView<SelectView<usize>>>> =
+                cursive.find_name(TUI_LIST_SCROLL_ID).unwrap();
+
+            list_view_scroll.scroll_to_important_area();
+        })
     }
 
     /// Used to lay out all views in the TUI instance.
@@ -130,7 +151,8 @@ impl Tui {
             .v_align(VAlign::Top);
 
         // The scroll view for exclusively vertical scrolling of the list view
-        let list_view_scroll = ScrollView::new(list_view.with_name(TUI_LIST_ID));
+        let list_view_scroll =
+            ScrollView::new(list_view.with_name(TUI_LIST_ID)).with_name(TUI_LIST_SCROLL_ID);
 
         // The list view header for designating what each column is/represents
         let list_view_header = TextView::new("").with_name(TUI_LIST_HEADER_ID);
@@ -216,13 +238,16 @@ impl Tui {
         cache.catagory_selected = String::new();
     }
 
-    /// Populate the list view with entries.
-    fn populate_with_entries(cursive: &mut Cursive, catagory_name: &str) {
+    /// Populate the list view with entries and select an entry based off the
+    /// given key
+    fn populate_with_entries_and_select(cursive: &mut Cursive, catagory_name: &str, key: u64) {
         // Grab all the views needed
         let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
         let mut list_view_header: ViewRef<TextView> =
             cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
         let mut status_header: ViewRef<TextView> = cursive.find_name(TUI_STATUS_HEADER_ID).unwrap();
+        let mut list_view_scroll: ViewRef<ScrollView<NamedView<SelectView<usize>>>> =
+            cursive.find_name(TUI_LIST_SCROLL_ID).unwrap();
 
         list_view.clear();
 
@@ -248,9 +273,16 @@ impl Tui {
         // Convert the entries into a table
         let mut entry_table = Vec::<Vec<String>>::with_capacity(entries.len());
 
-        for entry in &entries {
+        cache.entry_selected = 0;
+
+        for (i, entry) in entries.iter().enumerate() {
             let created_str = Local.timestamp(entry.created, 0).to_string();
             let modified_str = Local.timestamp(entry.modified, 0).to_string();
+
+            // If the key is equal to the one specified, select it
+            if entry.key == key {
+                cache.entry_selected = i;
+            }
 
             let mut entry_row = Vec::<String>::with_capacity(headers.len());
 
@@ -279,8 +311,17 @@ impl Tui {
             list_view.add_item(entry, i);
         }
 
+        // Focus on the selected entry
+        list_view.set_selection(cache.entry_selected); // Ignore the callback
+        list_view_scroll.scroll_to_important_area();
+
         cache.catagory_selected = catagory_name.to_string();
         cache.entries_queried = entries;
+    }
+
+    /// Populate the list view with entries.
+    fn populate_with_entries(cursive: &mut Cursive, catagory_name: &str) {
+        Self::populate_with_entries_and_select(cursive, catagory_name, 0);
     }
 
     /// Function called when escape is pressed.
@@ -309,6 +350,61 @@ impl Tui {
 
         // Otherwise, exit the program
         Self::exit_dialog(cursive);
+    }
+
+    /// Dialog used to find an entry given only a key
+    fn find_dialog(cursive: &mut Cursive) {
+        // Grab the cache
+        let cache = match cursive.user_data::<TuiCache>() {
+            Some(cache) => cache,
+            None => {
+                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
+            }
+        };
+
+        // If we're already in a dialog, do nothing
+        if cache.in_dialog == true {
+            return;
+        }
+
+        let find_view = TextView::new("Key: ");
+        let find_edit = EditView::new()
+            .on_submit(|cursive, _| Self::find_dialog_submit(cursive))
+            .with_name(TUI_FIND_KEY_ID)
+            .fixed_width(TUI_FIELD_ENTRY_WIDTH);
+
+        let find_row = LinearLayout::horizontal().child(find_view).child(find_edit);
+
+        let dialog = Dialog::around(find_row)
+            .button("Find", |cursive| Self::find_dialog_submit(cursive))
+            .title("Find Entry");
+
+        cursive.add_layer(dialog);
+    }
+
+    /// Function called when the find button is selected in the find dialog
+    fn find_dialog_submit(cursive: &mut Cursive) {
+        let find_edit: ViewRef<EditView> = cursive.find_name(TUI_FIND_KEY_ID).unwrap();
+
+        // Grab the cache
+        let cache = match cursive.user_data::<TuiCache>() {
+            Some(cache) => cache,
+            None => {
+                panic!("Failed to initialize Cursive instance with cache! this should not happen!");
+            }
+        };
+
+        let key_str = find_edit.get_content();
+        let key = b64::to_u64(&key_str);
+
+        // We don't need to find the exact entry at the moment, we just need to
+        // find the catagory so we know which catagory to display the contents
+        // of
+        let catagory_name = cache.db.grab_catagory_from_key(key).unwrap();
+
+        cache.in_dialog = false;
+        cursive.pop_layer();
+        Self::populate_with_entries_and_select(cursive, &catagory_name, key);
     }
 
     /// Dialog used to add either an entry or a catagory depending on the view.
