@@ -128,18 +128,6 @@ impl Tui {
         // Bind del to delete mode
         self.cursive
             .set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
-
-        self.cursive.set_autorefresh(true);
-
-        // Focus on the currently selected entry, since it won't automatically
-        // scroll if using populate_with_entries_and_select
-        // !TODO! find a less hacky way to do this
-        self.cursive.set_on_pre_event(Event::Refresh, |cursive| {
-            let mut list_view_scroll: ViewRef<ScrollView<NamedView<SelectView<usize>>>> =
-                cursive.find_name(TUI_LIST_SCROLL_ID).unwrap();
-
-            list_view_scroll.scroll_to_important_area();
-        })
     }
 
     /// Used to lay out all views in the TUI instance.
@@ -320,6 +308,7 @@ impl Tui {
 
         // Focus on the selected entry
         list_view.set_selection(cache.entry_selected); // Ignore the callback
+        drop(list_view); // Will not scroll unless the list view is dropped
         list_view_scroll.scroll_to_important_area();
 
         cache.catagory_selected = catagory_name.to_string();
