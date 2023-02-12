@@ -27,8 +27,14 @@ use cursive::views::ViewRef;
 use cursive::Cursive;
 use cursive::CursiveExt;
 use cursive::View;
+use directories::ProjectDirs;
 use std::cmp;
 use std::error::Error;
+use std::fs;
+use std::fs::DirEntry;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 // ID of the list view
 static TUI_LIST_ID: &str = "list";
@@ -65,6 +71,10 @@ static TUI_FIELD_LIST_ID: &str = "field_list";
 
 static TUI_LIST_SCROLL_ID: &str = "list_scroll";
 
+static TUI_OUT_FILE_ID: &str = "out_file";
+
+static TUI_TEMPLATE_LIST_ID: &str = "template_list";
+
 /// Struct used for interfacing with the TUI. Uses the Cursive library.
 pub struct Tui {
     cursive: Cursive,
@@ -77,11 +87,26 @@ impl Tui {
             cursive: Cursive::new(),
         };
 
+        // Initialize all important paths
+        let qualifier = "org";
+        let organisation = crate::ORGANISATION;
+        let application = crate::APPLICATION;
+
+        let dirs = ProjectDirs::from(qualifier, organisation, application).unwrap();
+
+        let mut template_dir = dirs.data_dir().to_owned();
+        template_dir.push("templates");
+        // Create directory if it doesn't exist
+        if !template_dir.exists() {
+            fs::create_dir_all(template_dir.as_path()).unwrap();
+        }
+
         let tui_cache = TuiCache {
             catagory_selected: String::new(),
             catagories_queried: vec![],
             dialog_layers: 0,
             db,
+            template_dir,
             fields_edited: vec![String::new()],
             entries_queried: Vec::new(),
             entry_selected: 0,
@@ -123,6 +148,11 @@ impl Tui {
         });
         self.cursive.set_on_post_event(Event::Char('-'), |cursive| {
             Self::give_take_dialog(cursive, false)
+        });
+
+        // Bind p to fill-template mode
+        self.cursive.set_on_post_event(Event::Char('p'), |cursive| {
+            Self::fill_template_dialog(cursive)
         });
 
         // Bind del to delete mode
@@ -911,6 +941,114 @@ impl Tui {
         cursive.add_layer(exit_dialog);
     }
 
+    /// Dialog used to select a label template file to fill out
+    fn fill_template_dialog(cursive: &mut Cursive) {
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        let template_list_header = TextView::new("Select Template File:");
+        let mut template_list = SelectView::<Option<PathBuf>>::new().popup();
+
+        template_list.add_item("<Select Template>", None);
+
+        let template_paths = match fs::read_dir(cache.template_dir.as_path()) {
+            Ok(template_paths) => template_paths,
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
+                return;
+            }
+        };
+
+        for entry in template_paths {
+            let path = match entry {
+                Ok(entry) => entry.path(),
+                Err(error) => {
+                    Self::error_dialog(cursive, Box::new(error));
+                    return;
+                }
+            };
+
+            if !path.is_dir() {
+                let template_name = path.file_name().unwrap().to_str().unwrap().to_string();
+
+                template_list.add_item(template_name, Some(path.to_path_buf()));
+            }
+        }
+
+        let template_list = template_list.with_name(TUI_TEMPLATE_LIST_ID);
+
+        let out_file_view = TextView::new("Out File: ");
+        let out_file_edit = EditView::new()
+            .with_name(TUI_OUT_FILE_ID)
+            .fixed_width(TUI_FIELD_ENTRY_WIDTH);
+        let out_file_row = LinearLayout::horizontal()
+            .child(out_file_view)
+            .child(out_file_edit);
+
+        let layout = LinearLayout::vertical()
+            .child(template_list_header)
+            .child(template_list)
+            .child(out_file_row);
+
+        let dialog = Dialog::around(layout)
+            .title("Fill Out Printable SVT Template")
+            .button("Fill!", |cursive| {
+                Self::fill_template_dialog_submit(cursive)
+            });
+
+        cache.dialog_layers += 1;
+        cursive.add_layer(dialog);
+    }
+
+    /// Fills the template if the "Fill!" button is selected
+    fn fill_template_dialog_submit(cursive: &mut Cursive) {
+        // Grab the needed views
+        let template_list: ViewRef<SelectView<Option<PathBuf>>> =
+            cursive.find_name(TUI_TEMPLATE_LIST_ID).unwrap();
+        let out_file_edit: ViewRef<EditView> = cursive.find_name(TUI_OUT_FILE_ID).unwrap();
+
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        let selection = template_list.selection().unwrap();
+
+        let in_path = match selection.as_ref() {
+            Some(in_path) => in_path.as_path(),
+            None => {
+                return;
+            }
+        };
+
+        let out_path = out_file_edit.get_content();
+
+        let in_data = match fs::read_to_string(in_path) {
+            Ok(string) => string,
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
+                return;
+            }
+        };
+
+        let out_data = match cache.db.fill_svg_template(in_data) {
+            Ok(out_data) => out_data,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        match fs::write(out_path.as_ref(), out_data) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
+                return;
+            }
+        };
+
+        cache.dialog_layers -= 1;
+        cursive.pop_layer();
+    }
+
     /// Converts a table into strings that mimic an excel table, or something
     /// alike that.
     fn columnator(headers: Vec<String>, table: Vec<Vec<String>>) -> Vec<String> {
@@ -985,6 +1123,8 @@ impl Tui {
 struct TuiCache {
     /// The currently selected catagory. If empty, we are in catagory view.
     pub catagory_selected: String,
+    /// The directory for templates
+    pub template_dir: PathBuf,
     /// The catagories queried. This is to prevent issues incase the database
     /// is altered outside of pinv while the program is running.
     pub catagories_queried: Vec<String>,
