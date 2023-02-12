@@ -80,7 +80,7 @@ impl Tui {
         let tui_cache = TuiCache {
             catagory_selected: String::new(),
             catagories_queried: vec![],
-            in_dialog: false,
+            dialog_layers: 0,
             db,
             fields_edited: vec![String::new()],
             entries_queried: Vec::new(),
@@ -337,8 +337,8 @@ impl Tui {
         let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         // If in a dialog, simply pop the dialog...
-        if cache.in_dialog == true {
-            cache.in_dialog = false;
+        if cache.dialog_layers > 0 {
+            cache.dialog_layers -= 1;
             cursive.pop_layer();
             return;
         }
@@ -360,7 +360,7 @@ impl Tui {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // If we're already in a dialog, do nothing
-        if cache.in_dialog == true {
+        if cache.dialog_layers > 0 {
             return;
         }
 
@@ -376,6 +376,7 @@ impl Tui {
             .button("Find", |cursive| Self::find_dialog_submit(cursive))
             .title("Find Entry");
 
+        cache.dialog_layers += 1;
         cursive.add_layer(dialog);
     }
 
@@ -400,7 +401,7 @@ impl Tui {
             }
         };
 
-        cache.in_dialog = false;
+        cache.dialog_layers -= 1;
         cursive.pop_layer();
         Self::populate_with_entries_and_select(cursive, &catagory_name, key);
     }
@@ -410,7 +411,7 @@ impl Tui {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        if cache.in_dialog == true {
+        if cache.dialog_layers > 0 {
             return;
         }
 
@@ -426,8 +427,6 @@ impl Tui {
     fn add_catagory_dialog(cursive: &mut Cursive) {
         // Grab the cache
         let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
-        cache.in_dialog = true;
 
         let name_view = TextView::new("Name: ");
         let name_edit = EditView::new()
@@ -453,6 +452,7 @@ impl Tui {
                 Self::add_catagory_dialog_submit(cursive)
             });
 
+        cache.dialog_layers += 1;
         cursive.add_layer(dialog);
     }
 
@@ -487,7 +487,7 @@ impl Tui {
             }
         };
 
-        cache.in_dialog = false;
+        cache.dialog_layers -= 1;
         cursive.pop_layer();
 
         Self::populate_with_catagories(cursive);
@@ -495,7 +495,8 @@ impl Tui {
 
     /// Dialog used to add a field to a catagory.
     fn add_catagory_field_dialog(cursive: &mut Cursive) {
-        // We are already in a dialog so we don't need to set cache.in_dialog
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let name_view = TextView::new("Name: ");
         let name_edit = EditView::new()
@@ -519,6 +520,7 @@ impl Tui {
             Self::add_catagory_field_submit(cursive)
         });
 
+        cache.dialog_layers += 1;
         cursive.add_layer(dialog);
     }
 
@@ -530,6 +532,9 @@ impl Tui {
             cursive.find_name(TUI_TYPE_MENU_ID).unwrap();
         let mut field_list_view: ViewRef<TextView> = cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
         let field_name_view: ViewRef<EditView> = cursive.find_name(TUI_FIELD_NAME_ID).unwrap();
+
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Need to make sure the content of the field list view isn't in use by something else when
         // set content is called, so ensure the lifetime of any modifications end here
@@ -550,6 +555,7 @@ impl Tui {
 
         field_list_view.set_content(catagory_field_string);
 
+        cache.dialog_layers -= 1;
         cursive.pop_layer();
     }
 
@@ -557,8 +563,6 @@ impl Tui {
     fn add_entry_dialog(cursive: &mut Cursive) {
         // Grab the cache
         let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
-        cache.in_dialog = true;
 
         let mut layout = LinearLayout::vertical();
 
@@ -603,6 +607,7 @@ impl Tui {
             .title(format!("Add entry to {}...", cache.catagory_selected))
             .button("Add", |cursive| Self::add_entry_submit(cursive));
 
+        cache.dialog_layers += 1;
         cursive.add_layer(dialog);
     }
 
@@ -685,7 +690,7 @@ impl Tui {
 
         let catagory = cache.catagory_selected.clone();
 
-        cache.in_dialog = false;
+        cache.dialog_layers -= 1;
         cursive.pop_layer();
 
         Self::populate_with_entries(cursive, &catagory);
@@ -700,7 +705,7 @@ impl Tui {
         let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Return if already in a dialog or if not in entry mode
-        if cache.in_dialog == true || cache.catagory_selected.len() == 0 {
+        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
             return;
         }
 
@@ -722,8 +727,6 @@ impl Tui {
         };
 
         cache.fields_edited = vec!["1".to_string()];
-
-        cache.in_dialog = true;
 
         let old_quantity_view = TextView::new(format!("Old Quantity: {}", quantity));
 
@@ -769,6 +772,7 @@ impl Tui {
             });
 
         cache.entry_selected = entry_pos;
+        cache.dialog_layers += 1;
         cursive.add_layer(dialog);
     }
 
@@ -844,9 +848,9 @@ impl Tui {
             }
         }
 
-        cache.in_dialog = false;
-
         let catagory = cache.catagory_selected.clone();
+
+        cache.dialog_layers -= 1;
         cursive.pop_layer();
 
         Self::populate_with_entries(cursive, &catagory);
@@ -861,11 +865,9 @@ impl Tui {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Return if already in a dialog or if not in entry mode
-        if cache.in_dialog == true || cache.catagory_selected.len() == 0 {
+        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
             return;
         }
-
-        cache.in_dialog = true;
 
         // Get the entry to give or take from
         let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
@@ -875,20 +877,16 @@ impl Tui {
         let dialog = Dialog::text(format!("Delete entry {}?", b64::from_u64(entry_key)))
             .button("No...", |cursive| {
                 // Grab the cache
-                let mut cache = match cursive.user_data::<TuiCache>() {
-                    Some(cache) => cache,
-                    None => {
-                        panic!("Failed to initialize Cursive instance with cache! this should not happen!");
-                    }
-                };
+                let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
-                cache.in_dialog = false;
+                cache.dialog_layers -= 1;
                 cursive.pop_layer();
             })
             .button("Yes!", move |cursive| {
                 Self::delete_dialog_submit(cursive, entry_key);
             });
 
+        cache.dialog_layers += 1;
         cursive.add_layer(dialog);
     }
 
@@ -906,7 +904,8 @@ impl Tui {
         }
 
         let catagory = cache.catagory_selected.clone();
-        cache.in_dialog = false;
+
+        cache.dialog_layers -= 1;
         cursive.pop_layer();
 
         Self::populate_with_entries(cursive, &catagory);
@@ -1005,8 +1004,8 @@ struct TuiCache {
     pub entries_queried: Vec<Entry>,
     /// Index of the selected entry
     pub entry_selected: usize,
-    /// Set if in a dialog.
-    pub in_dialog: bool,
+    /// Number of dialog windows opened
+    pub dialog_layers: usize,
     /// Database in use
     pub db: Db,
     /// May be removed in future update, used to hold the value of dialog
