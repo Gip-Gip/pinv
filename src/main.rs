@@ -24,6 +24,13 @@ fn confirm() -> bool {
 fn main() {
     let mut db = Db::init();
 
+    
+    let mut tui = Tui::new(db).unwrap();
+
+    tui.run();
+    return;
+
+    // To be re-written...
     let matches = command!()
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -65,9 +72,6 @@ fn main() {
 
     match matches.subcommand() {
         Some(("tui", _)) => {
-            let mut tui = Tui::new(db).unwrap();
-
-            tui.run();
 
             return;
         }
