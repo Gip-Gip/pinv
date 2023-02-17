@@ -78,6 +78,12 @@ static TUI_TEMPLATE_LIST_ID: &str = "template_list";
 
 static TUI_MOD_FIELD_EDIT: &str = "mod_field_edit";
 
+static TUI_CONSTRAINT_EDIT_ID: &str = "constraint_edit";
+
+static TUI_FIELD_SELECT_ID: &str = "field_select";
+
+static TUI_OP_SELECT_ID: &str = "op_select";
+
 /// Struct used for interfacing with the TUI. Uses the Cursive library.
 pub struct Tui {
     cursive: Cursive,
@@ -114,6 +120,7 @@ impl Tui {
             entries_queried: Vec::new(),
             entry_selected: 0,
             edited_ids: Vec::new(),
+            constraints: Vec::new(),
         };
 
         tui.cursive.set_user_data(tui_cache);
@@ -162,6 +169,10 @@ impl Tui {
         // Bind m to modify entry mode
         self.cursive
             .set_on_post_event(Event::Char('m'), |cursive| Self::mod_entry_dialog(cursive));
+
+        // Bind F to filter mode
+        self.cursive
+            .set_on_post_event(Event::Char('F'), |cursive| Self::filter_dialog(cursive));
 
         // Bind del to delete mode
         self.cursive
@@ -284,9 +295,18 @@ impl Tui {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Set the status to inform the user that they're in entry view
-        status_header.set_content(&format!("ENTRY VIEW (CATAGORY={})", catagory_name));
+        let mut status_string = format!("ENTRY VIEW (CATAGORY={})\n", catagory_name);
+        // Add the constraints to the status message
+        for (i, constraint) in cache.constraints.iter().enumerate() {
+            if i > 0 {
+                status_string.push_str(", ");
+            }
+            status_string.push_str(&constraint);
+        }
 
-        let entries = match cache.db.search_catagory(&catagory_name, vec!["KEY>=0"]) {
+        status_header.set_content(&status_string);
+
+        let entries = match cache.db.search_catagory(&catagory_name, &cache.constraints) {
             Ok(entries) => entries,
             Err(error) => {
                 Self::fatal_error_dialog(cursive, error);
@@ -596,7 +616,7 @@ impl Tui {
         let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
             Ok(fields) => fields,
             Err(error) => {
-                Self::error_dialog(cursive, error);
+                Self::fatal_error_dialog(cursive, error);
                 return;
             }
         };
@@ -638,6 +658,92 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Function called when a field is edited(will most likely be removed in
+    /// future updates)
+    fn edit_field(cursive: &mut Cursive, string: &str, number: usize) {
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        cache.fields_edited[number] = string.to_string();
+    }
+
+    /// Function called when the submit button is pressed in the add entry
+    /// dialog.
+    fn add_entry_submit(cursive: &mut Cursive) {
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Ignore the first 5 fields we won't need them
+        let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
+            Ok(fields) => fields,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        let fields = &fields[5..]; // Ignore the first 5 fields
+
+        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
+            Ok(types) => types,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        let types = &types[5..];
+
+        let key = b64::to_u64(&cache.fields_edited[0]);
+        let location = &cache.fields_edited[1];
+        let quantity: u64 = match cache.fields_edited[2].parse() {
+            Ok(quantity) => quantity,
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
+                return;
+            }
+        };
+        let created = Local::now().timestamp();
+        let modified = created;
+
+        let mut entry = Entry::new(
+            &cache.catagory_selected,
+            key,
+            location,
+            quantity,
+            created,
+            modified,
+        );
+
+        for (i, value) in cache.fields_edited[3..].iter().enumerate() {
+            if value.len() > 0 {
+                let value_sql: String = match types[i] {
+                    'i' | 'r' => value.clone(),
+                    't' | _ => format!("'{}'", value),
+                };
+                entry.add_field(EntryField::new(&fields[i], &value_sql));
+            }
+        }
+
+        eprintln!("{}", entry.to_string());
+
+        match cache.db.add_entry(entry) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        }
+
+        let catagory = cache.catagory_selected.clone();
+
+        cache.dialog_layers -= 1;
+        cursive.pop_layer();
+
+        Self::populate_with_entries_and_select(cursive, &catagory, key);
+    }
+
+    /// Dialog used to modify entries
     fn mod_entry_dialog(cursive: &mut Cursive) {
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
         // Grab the cache
@@ -723,6 +829,7 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    /// Called when the modify button is selected
     fn mod_entry_dialog_submit(cursive: &mut Cursive) {
         let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
         // Grab the cache
@@ -787,89 +894,101 @@ impl Tui {
             }
         };
 
+        let catagory = cache.catagory_selected.clone();
         cache.dialog_layers -= 1;
         cursive.pop_layer();
-    }
-    /// Function called when a field is edited(will most likely be removed in
-    /// future updates)
-    fn edit_field(cursive: &mut Cursive, string: &str, number: usize) {
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        cache.fields_edited[number] = string.to_string();
+        Self::populate_with_entries_and_select(cursive, &catagory, entry.key);
     }
 
-    /// Function called when the submit button is pressed in the add entry
-    /// dialog.
-    fn add_entry_submit(cursive: &mut Cursive) {
-        // Grab the cache
+    /// Dialog used to add filter constraints
+    fn filter_dialog(cursive: &mut Cursive) {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Ignore the first 5 fields we won't need them
+        // Return if already in a dialog or if not in entry mode
+        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
+            return;
+        }
+
         let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
             Ok(fields) => fields,
-            Err(error) => {
-                Self::error_dialog(cursive, error);
-                return;
-            }
-        };
-
-        let fields = &fields[5..]; // Ignore the first 5 fields
-
-        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
-            Ok(types) => types,
             Err(error) => {
                 Self::fatal_error_dialog(cursive, error);
                 return;
             }
         };
 
-        let types = &types[5..];
+        // Remove created and modified because they are autogenerated
+        let fields_a: Vec<String> = fields[..3].into();
+        let fields_b: Vec<String> = fields[5..].into();
+        let fields = [fields_a, fields_b].concat();
 
-        let key = b64::to_u64(&cache.fields_edited[0]);
-        let location = &cache.fields_edited[1];
-        let quantity: u64 = match cache.fields_edited[2].parse() {
-            Ok(quantity) => quantity,
-            Err(error) => {
-                Self::error_dialog(cursive, Box::new(error));
-                return;
-            }
-        };
-        let created = Local::now().timestamp();
-        let modified = created;
+        // Fields the user can select from
+        let mut field_select_list = SelectView::new().popup();
 
-        let mut entry = Entry::new(
+        field_select_list.add_all_str(fields);
+
+        let field_select_list = field_select_list.with_name(TUI_FIELD_SELECT_ID);
+
+        // The operators the user can use
+        let mut operator_select_list = SelectView::new().popup();
+
+        operator_select_list.add_all_str(vec!["=", "!=", ">", "<", ">=", "<="]);
+
+        let operator_select_list = operator_select_list.with_name(TUI_OP_SELECT_ID);
+
+        // The value to compare fields to...
+        let constraint_edit_view = EditView::new()
+            .with_name(TUI_CONSTRAINT_EDIT_ID)
+            .fixed_width(TUI_FIELD_ENTRY_WIDTH);
+
+        // Lay it all out horizontally
+        let layout = LinearLayout::horizontal()
+            .child(field_select_list)
+            .child(operator_select_list)
+            .child(constraint_edit_view);
+
+        let dialog =
+            Dialog::around(layout).button("Filter!", |cursive| Self::filter_dialog_submit(cursive));
+
+        cache.dialog_layers += 1;
+        cursive.add_layer(dialog);
+    }
+
+    /// Called when the "Filter!" button is selected
+    fn filter_dialog_submit(cursive: &mut Cursive) {
+        // Grab the needed views
+        let field_select_list: ViewRef<SelectView> =
+            cursive.find_name(TUI_FIELD_SELECT_ID).unwrap();
+        let operator_select_list: ViewRef<SelectView> =
+            cursive.find_name(TUI_OP_SELECT_ID).unwrap();
+        let constraint_edit_view: ViewRef<EditView> =
+            cursive.find_name(TUI_CONSTRAINT_EDIT_ID).unwrap();
+
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        let field_id = field_select_list.selection().unwrap();
+        let operator = operator_select_list.selection().unwrap();
+        // Format the constraint value according to it's type
+        let constraint_value = constraint_edit_view.get_content();
+        let constraint_value = match cache.db.format_string_to_field(
             &cache.catagory_selected,
-            key,
-            location,
-            quantity,
-            created,
-            modified,
-        );
-
-        for (i, value) in cache.fields_edited[3..].iter().enumerate() {
-            if value.len() > 0 {
-                let value_sql: String = match types[i] {
-                    'i' | 'r' => value.clone(),
-                    't' | _ => format!("'{}'", value),
-                };
-                entry.add_field(EntryField::new(&fields[i], &value_sql));
-            }
-        }
-
-        eprintln!("{}", entry.to_string());
-
-        match cache.db.add_entry(entry) {
-            Ok(_) => {}
+            &field_id,
+            &constraint_value,
+        ) {
+            Ok(constraint_value) => constraint_value,
             Err(error) => {
                 Self::error_dialog(cursive, error);
                 return;
             }
-        }
+        };
 
-        let catagory = cache.catagory_selected.clone();
+        let constraint = format!("{}{}{}", field_id, operator, constraint_value);
+
+        cache.constraints.push(constraint);
 
         cache.dialog_layers -= 1;
+        let catagory = cache.catagory_selected.clone();
         cursive.pop_layer();
 
         Self::populate_with_entries(cursive, &catagory);
@@ -1301,4 +1420,5 @@ struct TuiCache {
     /// fields.
     pub fields_edited: Vec<String>,
     pub edited_ids: Vec<usize>,
+    pub constraints: Vec<String>,
 }

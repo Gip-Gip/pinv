@@ -154,14 +154,14 @@ fn main() {
         }
         Some(("list", matches)) => {
             let catagory = matches.get_one::<String>("catagory").unwrap();
-            let fields: Vec<&str> = match matches.get_many::<String>("CONSTRAINTS") {
-                Some(matches) => matches.map(|x| x.as_str()).collect(),
-                None => vec!["KEY>=0"],
+            let fields: Vec<String> = match matches.get_many::<String>("CONSTRAINTS") {
+                Some(matches) => matches.map(|x| x.clone()).collect(),
+                None => Vec::new(),
             };
 
             println!("Search Constraints: {:?}", fields);
 
-            for entry in db.search_catagory(catagory, fields).unwrap() {
+            for entry in db.search_catagory(catagory, &fields).unwrap() {
                 println!("{}", entry);
             }
         }

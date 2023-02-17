@@ -730,8 +730,14 @@ impl Db {
     pub fn search_catagory(
         &self,
         catagory_id: &str,
-        conditions: Vec<&str>,
+        conditions: &[String],
     ) -> Result<Vec<Entry>, Box<dyn Error>> {
+        if conditions.len() == 0 {
+            let query = format!("SELECT * FROM {}", catagory_id);
+
+            return self.query_to_entries(&query, catagory_id);
+        }
+
         let mut query = format!("SELECT * FROM {} WHERE ", catagory_id);
 
         for (i, condition) in conditions.iter().enumerate() {
@@ -747,7 +753,7 @@ impl Db {
             query.push_str(format!("{}={}", id, value).as_str());
 
             query.push_str(match i.cmp(&(conditions.len() - 1)) {
-                cmp::Ordering::Less => " OR ",
+                cmp::Ordering::Less => " AND ",
                 _ => ";",
             })
         }
@@ -829,6 +835,29 @@ impl Db {
             ValueRef::Text(s) => format!("'{}'", String::from_utf8_lossy(s)),
             ValueRef::Blob(_) => "BLOB".to_owned(),
         }
+    }
+
+    /// Format a string to be appropriate to the field it belongs to
+    pub fn format_string_to_field(
+        &self,
+        catagory_id: &str,
+        field_id: &str,
+        field_value: &str,
+    ) -> Result<String, Box<dyn Error>> {
+        let fields = self.grab_catagory_fields(catagory_id)?;
+        let types = self.grab_catagory_types(catagory_id)?;
+
+        let i = match fields.iter().position(move |field| field == field_id) {
+            Some(i) => i,
+            None => {
+                bail!("Field {} not found in {}!", field_id, catagory_id);
+            }
+        };
+
+        Ok(match types[i] {
+            't' => format!("'{}'", field_value),
+            _ => field_value.to_string(),
+        })
     }
 }
 
