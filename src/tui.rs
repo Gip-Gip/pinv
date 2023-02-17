@@ -174,6 +174,14 @@ impl Tui {
         self.cursive
             .set_on_post_event(Event::Char('F'), |cursive| Self::filter_dialog(cursive));
 
+        // Bind c to clear last restraint
+        self.cursive
+            .set_on_post_event(Event::Char('c'), |cursive| Self::pop_constraint(cursive));
+
+        // Bind C to clear all constraints
+        self.cursive
+            .set_on_post_event(Event::Char('C'), |cursive| Self::clear_constraints(cursive));
+
         // Bind del to delete mode
         self.cursive
             .set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
@@ -276,6 +284,9 @@ impl Tui {
 
         cache.catagories_queried = catagories;
         cache.catagory_selected = String::new();
+
+        // Ensure there are no remaining constraints as this can cause errors...
+        cache.constraints.clear();
     }
 
     /// Populate the list view with entries and select an entry based off the
@@ -994,6 +1005,92 @@ impl Tui {
         Self::populate_with_entries(cursive, &catagory);
     }
 
+    /// Remove last applied constraint
+    fn pop_constraint(cursive: &mut Cursive) {
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Return if already in a dialog, no constraints are found, or if not in entry mode
+        if cache.dialog_layers > 0
+            || cache.constraints.len() == 0
+            || cache.catagory_selected.len() == 0
+        {
+            return;
+        }
+
+        // Ask the user if they want to remove the constraint
+
+        // Create the dialog
+        // We are sure that there are constraints in the constraint vec so it's safe to put an
+        // unwrap here...
+        let dialog = Dialog::text(format!(
+            "Remove constraint {}?",
+            cache.constraints.last().unwrap()
+        ))
+        .button("No...", |cursive| {
+            // Grab the cache
+            let mut cache = cursive.user_data::<TuiCache>().unwrap();
+
+            cache.dialog_layers -= 1;
+            cursive.pop_layer();
+        })
+        .button("Yes!", move |cursive| {
+            let cache = cursive.user_data::<TuiCache>().unwrap();
+
+            cache.constraints.pop();
+
+            cache.dialog_layers -= 1;
+            let catagory = cache.catagory_selected.clone();
+            cursive.pop_layer();
+
+            Self::populate_with_entries(cursive, &catagory);
+        });
+
+        cache.dialog_layers += 1;
+        cursive.add_layer(dialog);
+    }
+
+    /// Remove all constraints
+    fn clear_constraints(cursive: &mut Cursive) {
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Return if already in a dialog, no constraints are found, or if not in entry mode
+        if cache.dialog_layers > 0
+            || cache.constraints.len() == 0
+            || cache.catagory_selected.len() == 0
+        {
+            return;
+        }
+
+        // Ask the user if they want to remove the constraint
+
+        // Create the dialog
+        // We are sure that there are constraints in the constraint vec so it's safe to put an
+        // unwrap here...
+        let dialog = Dialog::text("Remove all constraints?")
+            .button("No...", |cursive| {
+                // Grab the cache
+                let mut cache = cursive.user_data::<TuiCache>().unwrap();
+
+                cache.dialog_layers -= 1;
+                cursive.pop_layer();
+            })
+            .button("Yes!", move |cursive| {
+                let cache = cursive.user_data::<TuiCache>().unwrap();
+
+                cache.constraints.clear();
+
+                cache.dialog_layers -= 1;
+                let catagory = cache.catagory_selected.clone();
+                cursive.pop_layer();
+
+                Self::populate_with_entries(cursive, &catagory);
+            });
+
+        cache.dialog_layers += 1;
+        cursive.add_layer(dialog);
+    }
     /// Dialog used when either giving or taking from an entry. If give is
     /// true, we are giving to an entry. If false, we are taking from an entry.
     fn give_take_dialog(cursive: &mut Cursive, give: bool) {
