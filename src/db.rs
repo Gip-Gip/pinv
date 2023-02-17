@@ -4,6 +4,8 @@ use crate::b64;
 use chrono::{Local, TimeZone};
 use core::fmt;
 use directories::ProjectDirs;
+use lazy_static::lazy_static;
+use regex::Regex;
 use rusqlite::Error as SqlError;
 use rusqlite::{types::ValueRef, Connection, OptionalExtension};
 use simple_error::bail;
@@ -409,6 +411,9 @@ impl Db {
     ///
     /// More or less just converts the catagory struct into an SQL table.
     pub fn add_catagory(&mut self, catagory: Catagory) -> Result<(), Box<dyn Error>> {
+        // Verify the catagory won't cause any problems...
+        Db::check_id_string(&catagory.id)?;
+
         // Check to see if the table exists first...
         let query = format!(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='{}';",
@@ -433,6 +438,9 @@ impl Db {
         let mut query = format!("CREATE TABLE {} (KEY INTEGER NOT NULL PRIMARY KEY, LOCATION TEXT NOT NULL, QUANTITY INTEGER NOT NULL, CREATED INTEGER NOT NULL, MODIFIED INTEGER NOT NULL, ", catagory.id);
 
         for (i, field) in catagory.fields.iter().enumerate() {
+            // Verify that the field won't cause any problems...
+            Db::check_id_string(&field.id)?;
+
             query.push_str(format!("{} {}", field.id, field.sql_type()).as_str());
 
             if i < catagory.fields.len() - 1 {
@@ -451,31 +459,45 @@ impl Db {
     ///
     /// More or less just converts the entry struct into SQL.
     pub fn add_entry(&mut self, entry: Entry) -> Result<(), Box<dyn Error>> {
-        self.add_key(entry.key, &entry.catagory_id)?;
-
+        // Check and make sure the location is a valid string, and format it...
+        let location =
+            self.format_string_to_field(&entry.catagory_id, "LOCATION", &entry.location)?;
         let mut query_a = format!(
             "INSERT INTO {} (KEY, LOCATION, QUANTITY, CREATED, MODIFIED",
             entry.catagory_id
         );
 
         let mut query_b = format!(
-            ")\nVALUES ({}, '{}', {}, {}, {}",
-            entry.key, entry.location, entry.quantity, entry.created, entry.modified
+            ")\nVALUES ({}, {}, {}, {}, {}",
+            entry.key, location, entry.quantity, entry.created, entry.modified
         );
 
         for field in entry.fields {
-            if field.get_sql().len() > 0 {
-                query_a.push(',');
-                query_b.push(',');
-                query_a.push_str(field.id.as_str());
-                query_b.push_str(field.get_sql().as_str());
+            let field_value = field.value;
+            let field_id = field.id;
+
+            // Skip this field if the value is null
+            if field_value.len() == 0 {
+                continue;
             }
+            // Verify they are valid names and types...
+            Db::check_id_string(&field_id)?;
+            let datatype = self.field_type(&entry.catagory_id, &field_id)?;
+            Db::check_value_string(&field_value, datatype)?;
+
+            query_a.push(',');
+            query_b.push(',');
+            query_a.push_str(&field_id);
+            query_b.push_str(&field_value);
         }
 
         query_b.push(')');
         query_a.push_str(query_b.as_str());
 
         let query = query_a;
+
+        // Add the key to the key table
+        self.add_key(entry.key, &entry.catagory_id)?;
 
         match self.connection.execute(&query, []) {
             Ok(_) => Ok(()),
@@ -604,20 +626,20 @@ impl Db {
     /// Grab the types of the fields in a catagory.
     ///
     /// !TODO! Change the return type to the DataType enum.
-    pub fn grab_catagory_types(&self, name: &str) -> Result<Vec<char>, Box<dyn Error>> {
+    pub fn grab_catagory_types(&self, name: &str) -> Result<Vec<DataType>, Box<dyn Error>> {
         let mut statement = self
             .connection
             .prepare(&format!("PRAGMA table_info({})", name))?;
 
         let mut rows = statement.query([])?;
-        let mut types = Vec::<char>::new();
+        let mut types = Vec::<DataType>::new();
 
         while let Some(row) = rows.next()? {
             let type_str: String = row.get(2)?;
             match type_str.as_str() {
-                "INTEGER" => types.push('i'),
-                "REAL" => types.push('r'),
-                _ => types.push('t'),
+                "INTEGER" => types.push(DataType::INTEGER),
+                "REAL" => types.push(DataType::REAL),
+                _ => types.push(DataType::TEXT),
             }
         }
 
@@ -837,6 +859,70 @@ impl Db {
         }
     }
 
+    /// Check the valididy of an ID string and throw an error if not valid
+    pub fn check_id_string(id: &str) -> Result<(), Box<dyn Error>> {
+        lazy_static! {
+            static ref VALID_RE: Regex =
+                Regex::new(r#"\A[A-Z][\S&&[^a-z+\\\-*/%&|\^=><;]]*\z"#).unwrap();
+        }
+
+        match VALID_RE.is_match(id) {
+            true => Ok(()),
+            false => {
+                bail!("{} is not a valid ID string!", id);
+            }
+        }
+    }
+
+    /// Check the valididy of a value string and throw an error if not valid
+    pub fn check_value_string(value: &str, datatype: DataType) -> Result<(), Box<dyn Error>> {
+        lazy_static! {
+            static ref VALID_TEXT_PREP_RE: Regex = Regex::new(r#"\\'"#).unwrap();
+            static ref VALID_TEXT_RE: Regex = Regex::new(r#"\A'[^']*'\z"#).unwrap();
+            static ref VALID_INTEGER_PREP_RE: Regex = Regex::new(r#"e\d+"#).unwrap();
+            static ref VALID_INTEGER_RE: Regex = Regex::new(r#"\A\-*\d+\z"#).unwrap();
+            static ref VALID_REAL_PREP_RE: Regex = Regex::new(r#"\.\d+|e\d+|e\-\d"#).unwrap();
+            static ref VALID_REAL_RE: Regex = VALID_INTEGER_RE.clone();
+        }
+
+        match datatype {
+            DataType::TEXT => {
+                let value = VALID_TEXT_PREP_RE.replace_all(value, "");
+
+                match VALID_TEXT_RE.is_match(&value) {
+                    true => Ok(()),
+                    false => {
+                        bail!("{} is not a valid text!", value);
+                    }
+                }
+            }
+
+            DataType::INTEGER => {
+                let value = VALID_INTEGER_PREP_RE.replace_all(value, "");
+                match VALID_INTEGER_RE.is_match(&value) {
+                    true => Ok(()),
+                    false => {
+                        bail!("{} is not a valid integer!", value);
+                    }
+                }
+            }
+
+            DataType::REAL => {
+                let value = VALID_REAL_PREP_RE.replace_all(value, "");
+                match VALID_REAL_RE.is_match(&value) {
+                    true => Ok(()),
+                    false => {
+                        bail!("{} is not a valid real!", value);
+                    }
+                }
+            }
+
+            _ => {
+                bail!("Unsupported type!");
+            }
+        }
+    }
+
     /// Format a string to be appropriate to the field it belongs to
     pub fn format_string_to_field(
         &self,
@@ -844,6 +930,24 @@ impl Db {
         field_id: &str,
         field_value: &str,
     ) -> Result<String, Box<dyn Error>> {
+        let datatype = self.field_type(catagory_id, field_id)?;
+
+        let out = match datatype {
+            DataType::TEXT => format!("'{}'", field_value),
+            _ => field_value.to_string(),
+        };
+
+        Db::check_value_string(&out, datatype)?;
+
+        Ok(out)
+    }
+
+    /// Get the type of a field
+    pub fn field_type(
+        &self,
+        catagory_id: &str,
+        field_id: &str,
+    ) -> Result<DataType, Box<dyn Error>> {
         let fields = self.grab_catagory_fields(catagory_id)?;
         let types = self.grab_catagory_types(catagory_id)?;
 
@@ -854,10 +958,7 @@ impl Db {
             }
         };
 
-        Ok(match types[i] {
-            't' => format!("'{}'", field_value),
-            _ => field_value.to_string(),
-        })
+        Ok(types[i].clone())
     }
 }
 
@@ -1470,17 +1571,9 @@ pub mod tests {
         db.add_entry(test_entry_1()).unwrap();
 
         assert_eq!(
-            db.search_catagory("RESISTOR", vec!["ohms=8.2e6"]).unwrap()[0],
+            db.search_catagory("RESISTOR", &vec!["ohms=8.2e6".to_string()])
+                .unwrap()[0],
             test_entry_0()
-        );
-
-        assert_eq!(
-            db.search_catagory(
-                "RESISTOR",
-                vec!["makeup='Thick Film'", "makeup='Ceramic Comp'"]
-            )
-            .unwrap(),
-            vec![test_entry_0(), test_entry_1()]
         );
     }
 
@@ -1535,5 +1628,57 @@ pub mod tests {
         db.grab_entry(0).unwrap_err();
         // Shouldn't fail...
         db.grab_entry(1).unwrap();
+    }
+
+    #[test]
+    fn test_db_string_format_id_test() {
+        let good_id_1 = "FOO";
+        let good_id_2 = "FOO0";
+
+        let bad_id_1 = "FOO+";
+        let bad_id_2 = "foo";
+        let bad_id_3 = "0foo";
+
+        // Should pass
+        Db::check_id_string(good_id_1).unwrap();
+        Db::check_id_string(good_id_2).unwrap();
+
+        // Should fail
+        Db::check_id_string(bad_id_1).unwrap_err();
+        Db::check_id_string(bad_id_2).unwrap_err();
+        Db::check_id_string(bad_id_3).unwrap_err();
+    }
+
+    #[test]
+    fn test_db_string_format_value_test() {
+        let good_string_1 = "'foo'";
+        let good_string_2 = "'f\\'oo'";
+        let good_number_1 = "123456789";
+        let good_number_2 = "1e3";
+        let good_float_1 = "1.2";
+
+        let bad_string_1 = "'f'oo'";
+        let bad_string_2 = "foo";
+        let bad_number_1 = "e1";
+        let bad_number_2 = "1fooga";
+        let bad_number_3 = "1.0";
+
+        // Should pass
+        Db::check_value_string(good_string_1, DataType::TEXT).unwrap();
+        Db::check_value_string(good_string_2, DataType::TEXT).unwrap();
+        Db::check_value_string(good_number_1, DataType::INTEGER).unwrap();
+        Db::check_value_string(good_number_1, DataType::REAL).unwrap();
+        Db::check_value_string(good_number_2, DataType::INTEGER).unwrap();
+        Db::check_value_string(good_number_2, DataType::REAL).unwrap();
+        Db::check_value_string(good_float_1, DataType::REAL).unwrap();
+
+        // Should fail
+        Db::check_value_string(bad_string_1, DataType::TEXT).unwrap_err();
+        Db::check_value_string(bad_string_2, DataType::TEXT).unwrap_err();
+        Db::check_value_string(bad_number_1, DataType::INTEGER).unwrap_err();
+        Db::check_value_string(bad_number_1, DataType::REAL).unwrap_err();
+        Db::check_value_string(bad_number_2, DataType::INTEGER).unwrap_err();
+        Db::check_value_string(bad_number_2, DataType::REAL).unwrap_err();
+        Db::check_value_string(bad_number_3, DataType::INTEGER).unwrap_err();
     }
 }

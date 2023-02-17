@@ -4,6 +4,7 @@ use crate::b64;
 use crate::db;
 use crate::db::Catagory;
 use crate::db::CatagoryField;
+use crate::db::DataType;
 use crate::db::Db;
 use crate::db::Entry;
 use crate::db::EntryField;
@@ -728,11 +729,18 @@ impl Tui {
 
         for (i, value) in cache.fields_edited[3..].iter().enumerate() {
             if value.len() > 0 {
-                let value_sql: String = match types[i] {
-                    'i' | 'r' => value.clone(),
-                    't' | _ => format!("'{}'", value),
+                let field_value = match cache.db.format_string_to_field(
+                    &cache.catagory_selected,
+                    &fields[i],
+                    value,
+                ) {
+                    Ok(field_value) => field_value,
+                    Err(error) => {
+                        Self::error_dialog(cursive, error);
+                        return;
+                    }
                 };
-                entry.add_field(EntryField::new(&fields[i], &value_sql));
+                entry.add_field(EntryField::new(&fields[i], &field_value));
             }
         }
 
@@ -787,12 +795,6 @@ impl Tui {
             }
         };
 
-        // Remove the created and mod times from the types array
-        let types_a: Vec<char> = types[..3].into();
-        let types_b: Vec<char> = types[5..].into();
-
-        let types = [types_a, types_b].concat();
-
         // Generate rows in the dialog to reflect the fields to be modified
         let mut layout = LinearLayout::vertical();
         // First find the largest field name
@@ -809,8 +811,8 @@ impl Tui {
             let field_value = match field.value.as_str() {
                 "NULL" => field.value.clone(),
                 _ => match types[i] {
-                    'i' | 'r' => field.value.clone(),
-                    't' | _ => field.value[1..field.value.len() - 1].to_owned(),
+                    _ => field.value.clone(),
+                    DataType::TEXT => field.value[1..field.value.len() - 1].to_owned(),
                 },
             };
 
@@ -860,18 +862,14 @@ impl Tui {
             }
         };
 
-        // Remove the created and mod times from the types array
-        let types_a: Vec<char> = types[..3].into();
-        let types_b: Vec<char> = types[5..].into();
-
-        let types = [types_a, types_b].concat();
-
         // Get all of the field ids(minus creation and mod time)
         let mut field_ids: Vec<String> = vec!["KEY".into(), "LOCATION".into(), "QUANTITY".into()];
 
         for field in entry.fields {
             field_ids.push(field.id.clone());
         }
+
+        let catagory = cache.catagory_selected.clone();
 
         // Drop the cache so we can get the edit views we need...
         drop(cache);
@@ -882,12 +880,21 @@ impl Tui {
                 .find_name(&format!("{}{}", TUI_MOD_FIELD_EDIT, id))
                 .unwrap();
 
+            let cache = cursive.user_data::<TuiCache>().unwrap();
+
             let field_id = &field_ids[id];
             let field_value = edit_view.get_content();
-            let field_value: String = match types[id] {
-                'i' | 'r' => field_value.to_string(),
-                't' | _ => format!("'{}'", field_value),
-            };
+            let field_value =
+                match cache
+                    .db
+                    .format_string_to_field(&catagory, field_id, &field_value)
+                {
+                    Ok(field_value) => field_value,
+                    Err(error) => {
+                        Self::error_dialog(cursive, error);
+                        return;
+                    }
+                };
 
             let field = EntryField::new(field_id, &field_value);
 
@@ -905,7 +912,6 @@ impl Tui {
             }
         };
 
-        let catagory = cache.catagory_selected.clone();
         cache.dialog_layers -= 1;
         cursive.pop_layer();
 

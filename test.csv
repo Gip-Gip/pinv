@@ -1,4 +1,4 @@
 'resistor'
 'key''location''quantity''mpn''mfcd_by''ohms''watts''tolerance''ppm_c''term_style''makeup''case_code''datasheet'
-0'bazville'10'ERJ-PM8F8204V''Panasonic'82000000.660.01100'SMD''Thick Film'1206'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'
+0'bazville'10'ERJ-PM8F8204V''Panasonic'82000000.660.01100'SMD''Thick Film''1206''https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'
 1'bazville'2'HPCR0819AK39RST''TE Connectivity/Holsworthy'3920.1-800'Through Hole''Ceramic Comp''19.1x7.9 Axial''https://www.mouser.com/datasheet/2/418/8/ENG_DS_1773193_1_B-2888555.pdf'
