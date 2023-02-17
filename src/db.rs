@@ -222,7 +222,7 @@ impl EntryField {
 }
 
 /// Used to create database entries
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     /// Catagory the entry belongs to
     pub catagory_id: String,
@@ -390,6 +390,15 @@ impl Db {
             "INSERT INTO KEYS (KEY, CATAGORY)\nVALUES ({}, '{}')",
             key, catagory_id
         );
+
+        self.connection.execute(&query, [])?;
+
+        Ok(())
+    }
+
+    /// Swap a key for another in the key table
+    fn swap_key(&mut self, old_key: u64, new_key: u64) -> Result<(), Box<dyn Error>> {
+        let query = format!("UPDATE KEYS SET KEY={} WHERE KEY={}", new_key, old_key);
 
         self.connection.execute(&query, [])?;
 
@@ -785,7 +794,18 @@ impl Db {
         let mut fields_str = format!("MODIFIED={},", mod_time_string);
 
         for (i, field) in fields.iter().enumerate() {
-            fields_str.push_str(&format!("{}={}", field.id, field.get_sql()));
+            // If the key is being modified, we need to update the key table
+            let field_value = match field.id.as_str() {
+                "KEY" => {
+                    let field_value = b64::to_u64(&field.value);
+                    self.swap_key(key, field_value)?;
+
+                    field_value.to_string()
+                }
+                _ => field.get_sql(),
+            };
+
+            fields_str.push_str(&format!("{}={}", field.id, field_value));
 
             if i < fields.len() - 1 {
                 fields_str.push(',')
@@ -1477,5 +1497,14 @@ pub mod tests {
             .unwrap();
 
         assert_eq!(db.grab_entry(0).unwrap().quantity, 9);
+
+        // Make sure modifying the key also works as expected...
+        db.mod_entry(0, vec![EntryField::from_str("key=1").unwrap()])
+            .unwrap();
+
+        // Should fail...
+        db.grab_entry(0).unwrap_err();
+        // Shouldn't fail...
+        db.grab_entry(1).unwrap();
     }
 }

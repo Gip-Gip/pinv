@@ -12,6 +12,7 @@ use cursive::align::HAlign;
 use cursive::align::VAlign;
 use cursive::event::Event;
 use cursive::event::Key;
+use cursive::vec;
 use cursive::view::Nameable;
 use cursive::view::Resizable;
 use cursive::view::Selector;
@@ -75,6 +76,8 @@ static TUI_OUT_FILE_ID: &str = "out_file";
 
 static TUI_TEMPLATE_LIST_ID: &str = "template_list";
 
+static TUI_MOD_FIELD_EDIT: &str = "mod_field_edit";
+
 /// Struct used for interfacing with the TUI. Uses the Cursive library.
 pub struct Tui {
     cursive: Cursive,
@@ -110,6 +113,7 @@ impl Tui {
             fields_edited: vec![String::new()],
             entries_queried: Vec::new(),
             entry_selected: 0,
+            edited_ids: Vec::new(),
         };
 
         tui.cursive.set_user_data(tui_cache);
@@ -154,6 +158,10 @@ impl Tui {
         self.cursive.set_on_post_event(Event::Char('p'), |cursive| {
             Self::fill_template_dialog(cursive)
         });
+
+        // Bind m to modify entry mode
+        self.cursive
+            .set_on_post_event(Event::Char('m'), |cursive| Self::mod_entry_dialog(cursive));
 
         // Bind del to delete mode
         self.cursive
@@ -630,6 +638,158 @@ impl Tui {
         cursive.add_layer(dialog);
     }
 
+    fn mod_entry_dialog(cursive: &mut Cursive) {
+        let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
+        // Grab the cache
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Return if already in a dialog or if not in entry mode
+        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
+            return;
+        }
+
+        // Get the entry to modify
+        let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
+        let entry = &cache.entries_queried[entry_pos];
+
+        // Build fields based on what the entry has
+        let key = EntryField::new("KEY", &b64::from_u64(entry.key));
+        // Add quotes to be removed later
+        // !TODO! make this less hacky
+        let location = EntryField::new("LOCATION", &format!("'{}'", entry.location));
+        let quantity = EntryField::new("QUANTITY", &entry.quantity.to_string());
+        let mut fields: Vec<EntryField> = vec![key, location, quantity];
+
+        fields.extend_from_slice(&entry.fields);
+
+        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
+            Ok(types) => types,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        // Remove the created and mod times from the types array
+        let types_a: Vec<char> = types[..3].into();
+        let types_b: Vec<char> = types[5..].into();
+
+        let types = [types_a, types_b].concat();
+
+        // Generate rows in the dialog to reflect the fields to be modified
+        let mut layout = LinearLayout::vertical();
+        // First find the largest field name
+        let mut max_size: usize = 0;
+
+        for field in &fields {
+            max_size = cmp::max(max_size, field.id.len())
+        }
+
+        for (i, field) in fields.iter().enumerate() {
+            let field_id = format!("{}:", field.id);
+            let field_id = TextView::new(format!("{:<width$}", field_id, width = max_size + 2));
+
+            let field_value = match field.value.as_str() {
+                "NULL" => field.value.clone(),
+                _ => match types[i] {
+                    'i' | 'r' => field.value.clone(),
+                    't' | _ => field.value[1..field.value.len() - 1].to_owned(),
+                },
+            };
+
+            let field_entry = EditView::new()
+                .content(field_value)
+                .on_edit(move |cursive, _, _| {
+                    let cache = cursive.user_data::<TuiCache>().unwrap();
+
+                    cache.edited_ids.push(i);
+                })
+                .with_name(format!("{}{}", TUI_MOD_FIELD_EDIT, i))
+                .fixed_width(TUI_FIELD_ENTRY_WIDTH);
+
+            let row = LinearLayout::horizontal()
+                .child(field_id)
+                .child(field_entry);
+
+            layout.add_child(row);
+        }
+
+        cache.edited_ids.clear();
+
+        let dialog = Dialog::around(layout)
+            .button("Modify!", |cursive| Self::mod_entry_dialog_submit(cursive));
+
+        cache.dialog_layers += 1;
+        cursive.add_layer(dialog);
+    }
+
+    fn mod_entry_dialog_submit(cursive: &mut Cursive) {
+        let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Get the entry to modify
+        let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
+        let entry = cache.entries_queried[entry_pos].clone();
+
+        let edited_ids = cache.edited_ids.clone();
+
+        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
+            Ok(types) => types,
+            Err(error) => {
+                Self::fatal_error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        // Remove the created and mod times from the types array
+        let types_a: Vec<char> = types[..3].into();
+        let types_b: Vec<char> = types[5..].into();
+
+        let types = [types_a, types_b].concat();
+
+        // Get all of the field ids(minus creation and mod time)
+        let mut field_ids: Vec<String> = vec!["KEY".into(), "LOCATION".into(), "QUANTITY".into()];
+
+        for field in entry.fields {
+            field_ids.push(field.id.clone());
+        }
+
+        // Drop the cache so we can get the edit views we need...
+        drop(cache);
+
+        let mut fields: Vec<EntryField> = Vec::with_capacity(edited_ids.len());
+        for id in edited_ids {
+            let edit_view: ViewRef<EditView> = cursive
+                .find_name(&format!("{}{}", TUI_MOD_FIELD_EDIT, id))
+                .unwrap();
+
+            let field_id = &field_ids[id];
+            let field_value = edit_view.get_content();
+            let field_value: String = match types[id] {
+                'i' | 'r' => field_value.to_string(),
+                't' | _ => format!("'{}'", field_value),
+            };
+
+            let field = EntryField::new(field_id, &field_value);
+
+            fields.push(field);
+        }
+
+        // Get the cache again
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+
+        match cache.db.mod_entry(entry.key, fields) {
+            Ok(types) => types,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        cache.dialog_layers -= 1;
+        cursive.pop_layer();
+    }
     /// Function called when a field is edited(will most likely be removed in
     /// future updates)
     fn edit_field(cursive: &mut Cursive, string: &str, number: usize) {
@@ -659,7 +819,7 @@ impl Tui {
         let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
             Ok(types) => types,
             Err(error) => {
-                Self::error_dialog(cursive, error);
+                Self::fatal_error_dialog(cursive, error);
                 return;
             }
         };
@@ -1140,4 +1300,5 @@ struct TuiCache {
     /// May be removed in future update, used to hold the value of dialog
     /// fields.
     pub fields_edited: Vec<String>,
+    pub edited_ids: Vec<usize>,
 }
