@@ -78,9 +78,21 @@ fn main() {
                 ]),
         )
         .subcommand(
+            // Find subcommand
             Command::new("find")
                 .about("Find an entry given a key")
-                .args(&[arg!([KEY] "the key of the entry to look up").required(true)]),
+                .args(&[arg!([KEY] "The key of the entry to look up").required(true)]),
+        )
+        .subcommand(
+            // Give subcommand
+            Command::new("give")
+                .about("Add to the quantity of an entry")
+                .args(&[
+                    arg!(-k --key <KEY> "The key of the entry to give to"),
+                    arg!([QUANTITY] "The quantity to add to the entry")
+                        .required(true)
+                        .value_parser(value_parser!(u64)),
+                ]),
         )
         .get_matches();
 
@@ -191,6 +203,33 @@ fn main() {
             let entry = db.grab_entry(key).unwrap();
 
             println!("{}", entry);
+        }
+        // Give subcommand
+        Some(("give", matches)) => {
+            let key: String = matches.get_one::<String>("key").unwrap().clone();
+            let quantity: u64 = *matches.get_one::<u64>("QUANTITY").unwrap();
+
+            // Convert the key from b64 to u64
+            let key = b64::to_u64(&key).unwrap();
+
+            let entry = db.grab_entry(key).unwrap();
+
+            let new_quantity = entry.quantity + quantity;
+            println!("{}", entry);
+
+            println!("New quantity: {}", new_quantity);
+
+            match confirm() {
+                true => {}
+                false => {
+                    return;
+                }
+            }
+
+            // Convert the new quantity to an entry field and submit...
+            let field = EntryField::new("QUANTITY", &new_quantity.to_string());
+
+            db.mod_entry(key, vec![field]).unwrap();
         }
         _ => {
             panic!("Exhausted list of subcommands and subcommand_required prevents `None`");
