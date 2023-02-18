@@ -811,8 +811,8 @@ impl Tui {
             let field_value = match field.value.as_str() {
                 "NULL" => field.value.clone(),
                 _ => match types[i] {
-                    _ => field.value.clone(),
                     DataType::TEXT => field.value[1..field.value.len() - 1].to_owned(),
+                    _ => field.value.clone(),
                 },
             };
 
@@ -912,10 +912,15 @@ impl Tui {
             }
         };
 
+        let key = entry.key;
+
         cache.dialog_layers -= 1;
         cursive.pop_layer();
 
-        Self::populate_with_entries_and_select(cursive, &catagory, entry.key);
+        // Drop all views
+        drop(list_view);
+
+        Self::populate_with_entries_and_select(cursive, &catagory, key);
     }
 
     /// Dialog used to add filter constraints
