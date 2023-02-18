@@ -154,7 +154,7 @@ fn main() {
         )
         .subcommand(
             // List command
-            Command::new("list-catagories").about("Lists all catagories."),
+            Command::new("list_catagories").about("Lists all catagories."),
         )
         .subcommand(
             // Fill template command
@@ -166,6 +166,10 @@ fn main() {
                     arg!(-b --builtin <BUILTIN> "Use a builtin template.").required(false),
                     arg!(-i --infile <IN> "GZ-SVG template to read and fill out.").required(false),
                 ]),
+        )
+        .subcommand(
+            // List builtin templates command
+            Command::new("list_builtin_templates").about("List all builtin label templates"),
         )
         .get_matches();
 
@@ -425,7 +429,7 @@ fn main() {
         }
         // List catagories subcommand
         // !TODO! Make more useful
-        Some(("list-catagories", _)) => {
+        Some(("list_catagories", _)) => {
             let catagories = db.list_catagories().unwrap();
 
             for catagory in catagories {
@@ -462,6 +466,12 @@ fn main() {
             let out_name = matches.get_one::<String>("OUT").unwrap();
 
             fs::write(out_name, filled_template).unwrap();
+        }
+        // List templates subcommand
+        Some(("list_builtin_templates", _)) => {
+            for template in &templates::TEMPLATES {
+                println!("{}", template.id);
+            }
         }
         _ => {
             panic!("Exhausted list of subcommands and subcommand_required prevents `None`");

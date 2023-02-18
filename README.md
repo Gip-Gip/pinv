@@ -181,6 +181,10 @@ this through the less command.
 
     -c, --catagory <CATAOGRY>    The catagory to list the contents of
 
+#### list_builtin_templates
+
+Lists all the built-in label templates for use with the fill_template command
+
 #### list_catagories
 
 Lists all the catagories in your pinv database
