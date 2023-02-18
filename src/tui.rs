@@ -795,6 +795,12 @@ impl Tui {
             }
         };
 
+        // Remove created and modified from the types array
+        let types_a = &types[..3];
+        let types_b = &types[5..];
+
+        let types = [types_a, types_b].concat();
+
         // Generate rows in the dialog to reflect the fields to be modified
         let mut layout = LinearLayout::vertical();
         // First find the largest field name
