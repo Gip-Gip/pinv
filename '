@@ -167,32 +167,3 @@ Fills out an svg template to the given svg file using either a built-in template
 #### find
 
 Finds an entry given it's base64 key
-
-#### give
-
-Adds the given number to an entry's quantity using it's base64 key
-
-    -k, --key <KEY>    The key of the entry to give to
-
-#### list
-
-Lists all the entries in a specified catagory, I recommend piping the output of
-this through the less command.
-
-    -c, --catagory <CATAOGRY>    The catagory to list the contents of
-
-#### list_catagories
-
-Lists all the catagories in your pinv database
-
-#### modify
-
-Modifies all the fields specified in an entry specified with it's base64 key. Fields use the `field=value` format.
-
-    -k, --key <KEY>    The key of the entry to modify.
-
-#### take
-
-Subtracts the given number from an entry's quantity using it's base64 key
-
-    -k, --key <KEY>    The key of the entry to give to
