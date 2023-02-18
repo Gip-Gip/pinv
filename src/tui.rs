@@ -447,7 +447,13 @@ impl Tui {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let key_str = find_edit.get_content();
-        let key = b64::to_u64(&key_str);
+        let key = match b64::to_u64(&key_str) {
+            Ok(key) => key,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
 
         // We don't need to find the exact entry at the moment, we just need to
         // find the catagory so we know which catagory to display the contents
@@ -706,7 +712,14 @@ impl Tui {
 
         let types = &types[5..];
 
-        let key = b64::to_u64(&cache.fields_edited[0]);
+        let key_str = &cache.fields_edited[0];
+        let key = match b64::to_u64(&key_str) {
+            Ok(key) => key,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
         let location = &cache.fields_edited[1];
         let quantity: u64 = match cache.fields_edited[2].parse() {
             Ok(quantity) => quantity,
@@ -890,17 +903,6 @@ impl Tui {
 
             let field_id = &field_ids[id];
             let field_value = edit_view.get_content();
-            let field_value =
-                match cache
-                    .db
-                    .format_string_to_field(&catagory, field_id, &field_value)
-                {
-                    Ok(field_value) => field_value,
-                    Err(error) => {
-                        Self::error_dialog(cursive, error);
-                        return;
-                    }
-                };
 
             let field = EntryField::new(field_id, &field_value);
 

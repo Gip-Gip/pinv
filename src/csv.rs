@@ -54,7 +54,7 @@ pub fn csv_to_entries(file_name: &str) -> Result<Vec<Entry>, Box<dyn Error>> {
         for (i, field) in record.iter().enumerate() {
             match fields[i].as_str() {
                 "KEY" => {
-                    key = Some(b64::to_u64(&field.replace("'", "")));
+                    key = Some(b64::to_u64(&field.replace("'", "")).unwrap());
                 }
                 "QUANTITY" => {
                     quantity = Some(field.parse::<u64>()?);

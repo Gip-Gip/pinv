@@ -1,6 +1,9 @@
 //! functions that help the conversion between integers and pinv-style base64
 //! strings.
 
+use simple_error::bail;
+use std::error::Error;
+
 /// Table containing all the numerals for pinv-style base64. Their position in
 /// the table determines their value e.g. "A" is at index 10 and has a value of
 /// 10 & "+" has an index of 62 and has a value of 62
@@ -39,17 +42,22 @@ pub fn from_u64(num: u64) -> String {
 
 /// Takes a pinv-style base64 string and converts it to a u64. Unwraps on
 /// error or invalid character, should be changed in an update.
-pub fn to_u64(string: &str) -> u64 {
+pub fn to_u64(string: &str) -> Result<u64, Box<dyn Error>> {
     let mut pow = 1;
     let mut out: u64 = 0;
 
     for digit in string.trim().chars().rev() {
-        let digit_val = TABLE.iter().position(|x| x == &digit).unwrap();
+        let digit_val = match TABLE.iter().position(|x| x == &digit) {
+            Some(digit_val) => digit_val,
+            None => {
+                bail!("Invalid digit {}!", digit);
+            }
+        };
 
         out += (digit_val as u64) * pow;
 
         pow *= 64;
     }
 
-    out
+    Ok(out)
 }

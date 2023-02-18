@@ -821,17 +821,21 @@ impl Db {
 
         let mut fields_str = format!("MODIFIED={},", mod_time_string);
 
+        let mut new_key: Option<u64> = Option::None;
+
         for (i, field) in fields.iter().enumerate() {
             // If the key is being modified, we need to update the key table
             let field_value = match field.id.as_str() {
                 "KEY" => {
-                    let field_value = b64::to_u64(&field.value);
-                    self.swap_key(key, field_value)?;
+                    let field_value = b64::to_u64(&field.value)?;
 
+                    new_key = Option::Some(field_value);
                     field_value.to_string()
                 }
-                _ => field.get_sql(),
+                _ => self.format_string_to_field(&catagory, &field.id, &field.value)?,
             };
+
+            // Check and make sure the fields value is a-ok
 
             fields_str.push_str(&format!("{}={}", field.id, field_value));
 
@@ -844,6 +848,11 @@ impl Db {
         let query = format!("UPDATE {} SET {} WHERE KEY={}", catagory, fields_str, key);
 
         self.connection.execute(&query, [])?;
+
+        // Swap the keys if a new key was specified
+        if let Some(new_key) = new_key {
+            self.swap_key(key, new_key)?;
+        }
 
         Ok(())
     }
