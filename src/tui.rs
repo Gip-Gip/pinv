@@ -8,6 +8,7 @@ use crate::db::DataType;
 use crate::db::Db;
 use crate::db::Entry;
 use crate::db::EntryField;
+use crate::templates;
 use chrono::{Local, TimeZone};
 use cursive::align::HAlign;
 use cursive::align::VAlign;
@@ -30,13 +31,12 @@ use cursive::Cursive;
 use cursive::CursiveExt;
 use cursive::View;
 use directories::ProjectDirs;
+use libflate::gzip::Decoder;
 use std::cmp;
 use std::error::Error;
 use std::fs;
-use std::fs::DirEntry;
-use std::path::Path;
+use std::io::Read;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 // ID of the list view
 static TUI_LIST_ID: &str = "list";
@@ -84,6 +84,16 @@ static TUI_CONSTRAINT_EDIT_ID: &str = "constraint_edit";
 static TUI_FIELD_SELECT_ID: &str = "field_select";
 
 static TUI_OP_SELECT_ID: &str = "op_select";
+
+/// Enum used when loading templates to determin if it's a built in or a file
+enum TemplateType {
+    // Built-in template
+    BuiltIn(String),
+    // File
+    File(String),
+    // Not selected
+    NS,
+}
 
 /// Struct used for interfacing with the TUI. Uses the Cursive library.
 pub struct Tui {
@@ -1314,10 +1324,17 @@ impl Tui {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let template_list_header = TextView::new("Select Template File:");
-        let mut template_list = SelectView::<Option<PathBuf>>::new().popup();
+        let mut template_list = SelectView::<TemplateType>::new().popup();
 
-        template_list.add_item("<Select Template>", None);
+        template_list.add_item("<Select Template>", TemplateType::NS);
 
+        // List the built in templates
+        for template in &templates::TEMPLATES {
+            let template_id = template.id.to_string();
+
+            template_list.add_item(template_id.clone(), TemplateType::BuiltIn(template_id));
+        }
+        // List the template files
         let template_paths = match fs::read_dir(cache.template_dir.as_path()) {
             Ok(template_paths) => template_paths,
             Err(error) => {
@@ -1338,7 +1355,10 @@ impl Tui {
             if !path.is_dir() {
                 let template_name = path.file_name().unwrap().to_str().unwrap().to_string();
 
-                template_list.add_item(template_name, Some(path.to_path_buf()));
+                template_list.add_item(
+                    template_name,
+                    TemplateType::File(path.to_str().unwrap().to_string()),
+                );
             }
         }
 
@@ -1370,7 +1390,7 @@ impl Tui {
     /// Fills the template if the "Fill!" button is selected
     fn fill_template_dialog_submit(cursive: &mut Cursive) {
         // Grab the needed views
-        let template_list: ViewRef<SelectView<Option<PathBuf>>> =
+        let template_list: ViewRef<SelectView<TemplateType>> =
             cursive.find_name(TUI_TEMPLATE_LIST_ID).unwrap();
         let out_file_edit: ViewRef<EditView> = cursive.find_name(TUI_OUT_FILE_ID).unwrap();
 
@@ -1379,24 +1399,52 @@ impl Tui {
 
         let selection = template_list.selection().unwrap();
 
-        let in_path = match selection.as_ref() {
-            Some(in_path) => in_path.as_path(),
-            None => {
+        let in_data = match selection.as_ref() {
+            TemplateType::BuiltIn(template_id) => templates::TEMPLATES
+                .iter()
+                .find(|template| template.id == template_id)
+                .expect("Template not found!")
+                .get_data(),
+            TemplateType::File(filename) => {
+                let filedata = match fs::read(filename) {
+                    Ok(data) => data,
+                    Err(error) => {
+                        Self::error_dialog(cursive, Box::new(error));
+                        return;
+                    }
+                };
+
+                let mut decoder = match Decoder::new(&filedata[..]) {
+                    Ok(decoder) => decoder,
+                    Err(error) => {
+                        Self::error_dialog(cursive, Box::new(error));
+                        return;
+                    }
+                };
+
+                let mut data: Vec<u8> = Vec::new();
+
+                match decoder.read_to_end(&mut data) {
+                    Ok(_) => {}
+                    Err(error) => {
+                        Self::error_dialog(cursive, Box::new(error));
+                        return;
+                    }
+                };
+
+                data
+            }
+            TemplateType::NS => {
+                Self::info_dialog(cursive, "You need to select a template!");
                 return;
             }
         };
 
         let out_path = out_file_edit.get_content();
 
-        let in_data = match fs::read_to_string(in_path) {
-            Ok(string) => string,
-            Err(error) => {
-                Self::error_dialog(cursive, Box::new(error));
-                return;
-            }
-        };
+        let in_string = String::from_utf8_lossy(&in_data);
 
-        let out_data = match cache.db.fill_svg_template(&in_data) {
+        let out_data = match cache.db.fill_svg_template(&in_string) {
             Ok(out_data) => out_data,
             Err(error) => {
                 Self::error_dialog(cursive, error);
@@ -1469,6 +1517,12 @@ impl Tui {
         out_strings
     }
 
+    /// Dialog presenting a non-fatal error
+    fn info_dialog(cursive: &mut Cursive, string: &str) {
+        let dialog = Dialog::info(string).title("Info:");
+
+        cursive.add_layer(dialog)
+    }
     /// Dialog presenting a non-fatal error
     fn error_dialog(cursive: &mut Cursive, error: Box<dyn Error>) {
         let dialog = Dialog::info(format!("{}", error)).title("Error!");
