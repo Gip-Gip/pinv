@@ -1,6 +1,6 @@
 [package]
 name = "pinv"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "A simple TUI/CLI tool for organising parts, tools, and materials in shop or home"
@@ -10,6 +10,8 @@ repository = "https://github.com/Gip-Gip/pinv"
 readme = "README.md"
 homepage = "https://openapeshop.org/software/pinv"
 
+[[bin]]
+name = "pinv"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
