@@ -200,3 +200,9 @@ Modifies all the fields specified in an entry specified with it's base64 key. Fi
 Subtracts the given number from an entry's quantity using it's base64 key
 
     -k, --key <KEY>    The key of the entry to give to
+
+## Will Future Updates Break My Database?
+
+While in a very early version, I already personally have a lot of data stored in
+my pinv so I will **guarantee** all pinv versions to be at the very least backwards
+compatable with previously made databases.
