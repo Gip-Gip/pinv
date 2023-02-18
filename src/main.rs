@@ -1,8 +1,10 @@
 use chrono::Local;
 use clap::{arg, command, value_parser, Command};
-use pinv::db::{Catagory, CatagoryField, Db, Entry, EntryField};
+use pinv::db::{Catagory, CatagoryField, DataType, Db, Entry, EntryField};
 use pinv::tui::Tui;
 use pinv::{b64, csv};
+use simple_error::bail;
+use std::error::Error;
 use std::fs;
 use std::io::stdin;
 
@@ -18,6 +20,23 @@ fn confirm() -> bool {
     }
     eprintln!("'y' not selected, aborted!");
     false
+}
+
+fn split_field(field: &str) -> Result<(String, String), Box<dyn Error>> {
+    // Split at the first "=", everything before will be the
+    // field ID, everything after the field value
+    let splitpoint = match field.find('=') {
+        Some(splitpoint) => splitpoint,
+        None => {
+            bail!("Invalid field! No \"=\"!");
+        }
+    };
+
+    let field_id = field[..splitpoint].to_uppercase();
+
+    let field_value = field[splitpoint + 1..].to_owned();
+
+    Ok((field_id, field_value))
 }
 
 /// Probably going to redo this in the near future, but it sorta works for now
@@ -49,6 +68,15 @@ fn main() {
                     arg!([FIELD] ... "A field to apply to the entry.").required(true),
                 ]),
         )
+        .subcommand(
+            // Add catagory subcommand
+            Command::new("add_catagory")
+                .about("Add a new catagory")
+                .args(&[
+                    arg!(-c --catagory <CATAGORY> "The name of the catagory").required(true),
+                    arg!([FIELD] ... "A field to apply to the catagory").required(true),
+                ]),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -74,21 +102,13 @@ fn main() {
             let mut entry_fields: Vec<EntryField> = Vec::new();
             // Parse all the fields
             for field in fields {
-                // Split at the first "=", everything before will be the
-                // field ID, everything after the field value
-                let splitpoint = field
-                    .find('=')
-                    .expect("Invalid field definition: no \"=\"!");
-
-                let field_id = &field[..splitpoint].to_uppercase();
-
-                let field_value = &field[splitpoint + 1..];
+                let (field_id, field_value) = split_field(&field).unwrap();
                 // Format the value
                 let field_value = db
-                    .format_string_to_field(&catagory, field_id, field_value)
+                    .format_string_to_field(&catagory, &field_id, &field_value)
                     .unwrap();
 
-                let entry_field = EntryField::new(field_id, &field_value);
+                let entry_field = EntryField::new(&field_id, &field_value);
 
                 entry_fields.push(entry_field);
             }
@@ -113,6 +133,48 @@ fn main() {
             }
 
             db.add_entry(entry).unwrap();
+        }
+        // Add catagory subcommand
+        Some(("add_catagory", matches)) => {
+            let catagory_id: String = matches.get_one::<String>("catagory").unwrap().clone();
+
+            let fields: Vec<String> = matches
+                .get_many::<String>("FIELD")
+                .unwrap()
+                .cloned()
+                .collect();
+
+            let mut catagory_fields: Vec<CatagoryField> = Vec::new();
+            // Parse all the fields
+            for field in fields {
+                let (field_id, field_value) = split_field(&field).unwrap();
+
+                if field_value.len() != 1 {
+                    panic!(
+                        "Catagory field is supposed to be one character, not {}!",
+                        field_value
+                    );
+                }
+                // Get the type
+                let field_value = DataType::from_char(field_value.chars().next().unwrap()).unwrap();
+
+                let catagory_field = CatagoryField::new(&field_id, field_value);
+
+                catagory_fields.push(catagory_field);
+            }
+
+            let catagory = Catagory::with_fields(&catagory_id, catagory_fields);
+
+            println!("{}", catagory);
+
+            match confirm() {
+                true => {}
+                false => {
+                    return;
+                }
+            }
+
+            db.add_catagory(catagory).unwrap();
         }
         _ => {
             panic!("Exhausted list of subcommands and subcommand_required prevents `None`");

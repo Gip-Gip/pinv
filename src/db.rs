@@ -37,6 +37,20 @@ impl DataType {
             Self::BLOB => 'b',
         }
     }
+
+    /// Get the datatype from a char
+    pub fn from_char(character: char) -> Result<Self, Box<dyn Error>> {
+        Ok(match character {
+            'n' => DataType::NULL,
+            'i' => DataType::INTEGER,
+            'r' => DataType::REAL,
+            't' => DataType::TEXT,
+            'b' => DataType::BLOB,
+            _ => {
+                bail!(r#"Invalid data type "{}"!"#, character);
+            }
+        })
+    }
 }
 
 /// Datatypes in SQLite
@@ -59,10 +73,17 @@ pub struct CatagoryField {
     /// id of the field, case insensitive
     pub id: String,
     /// pinv datatype of the field
-    pub data_type: DataType,
+    pub datatype: DataType,
 }
 
 impl CatagoryField {
+    /// Create a new field from an id and a datatype
+    pub fn new(id: &str, datatype: DataType) -> Self {
+        let id = id.to_owned();
+
+        Self { id, datatype }
+    }
+
     /// Create a field from a string.
     ///
     /// Format is *id*:*datatype*, where id is the case-insensitive id of the
@@ -82,28 +103,18 @@ impl CatagoryField {
             bail!(r#"Invalid field definition "{}"!"#, string);
         }
 
-        // !TODO! Replace with future DataType::from_char()?
-        let data_type = match split_str[1] {
-            "n" => DataType::NULL,
-            "i" => DataType::INTEGER,
-            "r" => DataType::REAL,
-            "t" => DataType::TEXT,
-            "b" => DataType::BLOB,
-            _ => {
-                bail!(r#"Invalid data type "{}"!"#, split_str[1]);
-            }
-        };
+        let datatype = DataType::from_char(split_str[1].chars().next().unwrap())?;
 
         Ok(Self {
             id: split_str[0].to_owned().to_uppercase(), // Make it case insensitive by converting the id to uppercase
-            data_type,
+            datatype,
         })
     }
 
     /// Get the type of the field and convert it to it's SQL keyword
     /// equivalent. E.g. a field with type integer would return "INTEGER"
     pub fn sql_type(&self) -> String {
-        match &self.data_type {
+        match &self.datatype {
             DataType::NULL => "NULL".to_owned(),
             DataType::INTEGER => "INTEGER".to_owned(),
             DataType::REAL => "REAL".to_owned(),
