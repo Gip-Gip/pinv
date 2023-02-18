@@ -94,6 +94,17 @@ fn main() {
                         .value_parser(value_parser!(u64)),
                 ]),
         )
+        .subcommand(
+            // Take subcommand
+            Command::new("take")
+                .about("Take from the quantity of an entry")
+                .args(&[
+                    arg!(-k --key <KEY> "The key of the entry to take from"),
+                    arg!([QUANTITY] "The quantity to take from the entry")
+                        .required(true)
+                        .value_parser(value_parser!(u64)),
+                ]),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -215,6 +226,37 @@ fn main() {
             let entry = db.grab_entry(key).unwrap();
 
             let new_quantity = entry.quantity + quantity;
+            println!("{}", entry);
+
+            println!("New quantity: {}", new_quantity);
+
+            match confirm() {
+                true => {}
+                false => {
+                    return;
+                }
+            }
+
+            // Convert the new quantity to an entry field and submit...
+            let field = EntryField::new("QUANTITY", &new_quantity.to_string());
+
+            db.mod_entry(key, vec![field]).unwrap();
+        }
+        // Take subcommand
+        Some(("take", matches)) => {
+            let key: String = matches.get_one::<String>("key").unwrap().clone();
+            let quantity: u64 = *matches.get_one::<u64>("QUANTITY").unwrap();
+
+            // Convert the key from b64 to u64
+            let key = b64::to_u64(&key).unwrap();
+
+            let entry = db.grab_entry(key).unwrap();
+
+            let new_quantity = match entry.quantity > quantity {
+                true => entry.quantity - quantity,
+                false => 0,
+            };
+
             println!("{}", entry);
 
             println!("New quantity: {}", new_quantity);
