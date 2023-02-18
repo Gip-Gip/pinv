@@ -1,5 +1,5 @@
 use chrono::Local;
-use clap::{arg, command, Command};
+use clap::{arg, command, value_parser, Command};
 use pinv::db::{Catagory, CatagoryField, Db, Entry, EntryField};
 use pinv::tui::Tui;
 use pinv::{b64, csv};
@@ -24,48 +24,98 @@ fn confirm() -> bool {
 fn main() {
     let mut db = Db::init();
 
-    let mut tui = Tui::new(db).unwrap();
-
-    tui.run();
-    return;
-
     // To be re-written...
     let matches = command!()
+        .propagate_version(true)
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommand(Command::new("add").args(&[
-            arg!(-k --key <KEY> "entry key").required(true),
-            arg!(-c --catagory <CATAGORY> "catagory to insert the entry in").required(true),
-            arg!(-l --location <LOCATION> "location the entry will be stored in").required(true),
-            arg!(-q --quantity <QUANTITY> "quantity of the entry to be stored").required(true),
-            arg!([FIELD] ... "foo"),
-        ]))
-        .subcommand(Command::new("import_csv").args(&[arg!([FILE] "csv file to import")]))
         .subcommand(
-            Command::new("grab")
-                .args(&[arg!([KEY] "key of the entry to be grabbed").required(true)]),
+            // TUI Subcommand
+            Command::new("tui").about("Enter TUI mode"),
         )
-        .subcommand(Command::new("add_catagory").args(&[
-            arg!([FIELD] ... "field to add to the catagory").required(true),
-            arg!(-c --catagory <CATAGORY> ... "catagory to add").required(true),
-        ]))
-        .subcommand(Command::new("list").args(&[
-            arg!(-c --catagory <CATAGORY> "Catagory to list").required(true),
-            arg!([CONSTRAINTS] ... "all the constraints").required(true),
-        ]))
-        .subcommand(Command::new("delete").args(&[arg!([KEY] "key of the entry to delete")]))
-        .subcommand(Command::new("take").args(&[
-            arg!([QUANTITY] "quantity to take from the entry").required(true),
-            arg!(-k --key <KEY> "key of the entry to take from").required(true),
-        ]))
-        .subcommand(Command::new("give").args(&[
-            arg!([QUANTITY] "quantity to give to the entry").required(true),
-            arg!(-k --key <KEY> "key of the entry to give to").required(true),
-        ]))
-        .subcommand(Command::new("fill_template").args(&[
-            arg!([IN] "template file").required(true),
-            arg!(-o --out <FILE> "output file").required(true),
-        ]))
-        .subcommand(Command::new("tui"))
+        .subcommand(
+            // Add subcommand
+            Command::new("add")
+                .about("Add an entry to a catagory")
+                .args(&[
+                    arg!(-c --catagory <CATAGORY> "The catagory to add the entry to.")
+                        .required(true),
+                    arg!(-k --key <KEY> "The key of the entry to add.").required(true),
+                    arg!(-l --location <LOCATION> "The physical location of the entry.")
+                        .required(true),
+                    arg!(-q --quantity <QUANTITY> "The quantity of the entry.")
+                        .required(true)
+                        .value_parser(value_parser!(u64)),
+                    arg!([FIELD] ... "A field to apply to the entry.").required(true),
+                ]),
+        )
         .get_matches();
+
+    match matches.subcommand() {
+        // TUI Subcommand
+        Some(("tui", _)) => {
+            let mut tui = Tui::new(db).unwrap();
+
+            tui.run();
+        }
+        // Add Subcommand
+        Some(("add", matches)) => {
+            let catagory: String = matches.get_one::<String>("catagory").unwrap().clone();
+            let key: String = matches.get_one::<String>("key").unwrap().clone();
+            let location: String = matches.get_one::<String>("location").unwrap().clone();
+            let quantity: u64 = *matches.get_one::<u64>("quantity").unwrap();
+
+            let fields: Vec<String> = matches
+                .get_many::<String>("FIELD")
+                .unwrap()
+                .cloned()
+                .collect();
+
+            let mut entry_fields: Vec<EntryField> = Vec::new();
+            // Parse all the fields
+            for field in fields {
+                // Split at the first "=", everything before will be the
+                // field ID, everything after the field value
+                let splitpoint = field
+                    .find('=')
+                    .expect("Invalid field definition: no \"=\"!");
+
+                let field_id = &field[..splitpoint].to_uppercase();
+
+                let field_value = &field[splitpoint + 1..];
+                // Format the value
+                let field_value = db
+                    .format_string_to_field(&catagory, field_id, field_value)
+                    .unwrap();
+
+                let entry_field = EntryField::new(field_id, &field_value);
+
+                entry_fields.push(entry_field);
+            }
+
+            // Convert the key from base64 to u64
+            let key = b64::to_u64(&key).unwrap();
+
+            // Create the created/modified timestamp
+            let created = Local::now().timestamp();
+            let modified = created;
+
+            let mut entry = Entry::new(&catagory, key, &location, quantity, created, modified);
+            entry.add_fields(&entry_fields);
+
+            println!("{}", entry);
+
+            match confirm() {
+                true => {}
+                false => {
+                    return;
+                }
+            }
+
+            db.add_entry(entry).unwrap();
+        }
+        _ => {
+            panic!("Exhausted list of subcommands and subcommand_required prevents `None`");
+        }
+    }
 }

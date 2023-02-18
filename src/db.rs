@@ -271,6 +271,11 @@ impl Entry {
     pub fn add_field(&mut self, field: EntryField) {
         self.fields.push(field);
     }
+
+    /// Add a slice of fields to the entry
+    pub fn add_fields(&mut self, fields: &[EntryField]) {
+        self.fields.extend_from_slice(fields);
+    }
 }
 
 impl fmt::Display for Entry {
