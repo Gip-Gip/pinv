@@ -84,6 +84,12 @@ fn main() {
                 .args(&[arg!([KEY] "The key of the entry to look up").required(true)]),
         )
         .subcommand(
+            // Delete subcommand
+            Command::new("delete")
+                .about("Delete an entry given a key")
+                .args(&[arg!([KEY] "The key of the entry to delete").required(true)]),
+        )
+        .subcommand(
             // Give subcommand
             Command::new("give")
                 .about("Add to the quantity of an entry")
@@ -214,6 +220,29 @@ fn main() {
             let entry = db.grab_entry(key).unwrap();
 
             println!("{}", entry);
+        }
+        // Delete subcommand
+        Some(("delete", matches)) => {
+            let key: String = matches.get_one::<String>("KEY").unwrap().clone();
+
+            // Convert the key from b64 to u64
+            let key = b64::to_u64(&key).unwrap();
+
+            let entry = db.grab_entry(key).unwrap();
+
+            println!(
+                "{}\n\n\tONCE AN ENTRY IS DELETED, IT CANNOT BE UNDONE",
+                entry
+            );
+
+            match confirm() {
+                true => {}
+                false => {
+                    return;
+                }
+            }
+
+            db.delete_entry(key).unwrap();
         }
         // Give subcommand
         Some(("give", matches)) => {
