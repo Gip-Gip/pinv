@@ -77,6 +77,11 @@ fn main() {
                     arg!([FIELD] ... "A field to apply to the catagory").required(true),
                 ]),
         )
+        .subcommand(
+            Command::new("find")
+                .about("Find an entry given a key")
+                .args(&[arg!([KEY] "the key of the entry to look up").required(true)]),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -175,6 +180,17 @@ fn main() {
             }
 
             db.add_catagory(catagory).unwrap();
+        }
+        // Find subcommand
+        Some(("find", matches)) => {
+            let key: String = matches.get_one::<String>("KEY").unwrap().clone();
+
+            // Convert the key from b64 to u64
+            let key = b64::to_u64(&key).unwrap();
+
+            let entry = db.grab_entry(key).unwrap();
+
+            println!("{}", entry);
         }
         _ => {
             panic!("Exhausted list of subcommands and subcommand_required prevents `None`");
