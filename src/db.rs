@@ -499,7 +499,6 @@ impl Db {
             }
             // Verify they are valid names and types...
             Db::check_id_string(&field_id)?;
-            let datatype = self.field_type(&entry.catagory_id, &field_id)?;
 
             query_a.push(',');
             query_b.push(',');

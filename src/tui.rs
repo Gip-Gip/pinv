@@ -4,7 +4,6 @@ use crate::b64;
 use crate::db;
 use crate::db::Catagory;
 use crate::db::CatagoryField;
-use crate::db::DataType;
 use crate::db::Db;
 use crate::db::Entry;
 use crate::db::EntryField;
@@ -14,7 +13,6 @@ use cursive::align::HAlign;
 use cursive::align::VAlign;
 use cursive::event::Event;
 use cursive::event::Key;
-use cursive::vec;
 use cursive::view::Nameable;
 use cursive::view::Resizable;
 use cursive::view::Selector;
@@ -712,16 +710,6 @@ impl Tui {
 
         let fields = &fields[5..]; // Ignore the first 5 fields
 
-        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
-            Ok(types) => types,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
-
-        let types = &types[5..];
-
         let key_str = &cache.fields_edited[0];
         let key = match b64::to_u64(&key_str) {
             Ok(key) => key,
@@ -799,20 +787,6 @@ impl Tui {
 
         fields.extend_from_slice(&entry.fields);
 
-        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
-            Ok(types) => types,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
-
-        // Remove created and modified from the types array
-        let types_a = &types[..3];
-        let types_b = &types[5..];
-
-        let types = [types_a, types_b].concat();
-
         // Generate rows in the dialog to reflect the fields to be modified
         let mut layout = LinearLayout::vertical();
         // First find the largest field name
@@ -866,14 +840,6 @@ impl Tui {
 
         let edited_ids = cache.edited_ids.clone();
 
-        let types = match cache.db.grab_catagory_types(&cache.catagory_selected) {
-            Ok(types) => types,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
-
         // Get all of the field ids(minus creation and mod time)
         let mut field_ids: Vec<String> = vec!["KEY".into(), "LOCATION".into(), "QUANTITY".into()];
 
@@ -891,8 +857,6 @@ impl Tui {
             let edit_view: ViewRef<EditView> = cursive
                 .find_name(&format!("{}{}", TUI_MOD_FIELD_EDIT, id))
                 .unwrap();
-
-            let cache = cursive.user_data::<TuiCache>().unwrap();
 
             let field_id = &field_ids[id];
             let field_value = edit_view.get_content();

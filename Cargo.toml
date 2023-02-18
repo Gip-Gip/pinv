@@ -2,19 +2,24 @@
 name = "pinv"
 version = "0.0.1"
 edition = "2021"
+license = "GPL-3.0-only"
+description = "A simple TUI/CLI tool for organising parts, tools, and materials in shop or home"
+keywords = ["tui", "cli", "inventory", "tool", "standalone"]
+catagories = ["command-line-utilities", "database"]
+repository = "https://github.com/Gip-Gip/pinv"
+readme = "README.md"
+homepage = "https://openapeshop.org/software/pinv"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-base64 = "0.13.1"
 clap = { version = "3.2.22", features = ["cargo", "derive", "unicode"] }
 rusqlite = "0.28.0"
 simple-error = "0.2.3"
 directories = "4.0.1"
 chrono = "0.4.22"
-serial_test = "0.9.0"
-csv = "1.1.6"
-cursive = { version = "0.20.0", default-features = false, features = ["toml", "crossterm-backend"] }
+cursive = { version = "0.20.0", default-features = false, features = ["crossterm-backend"] }
 lazy_static = "1.4.0"
 regex = "1.6.0"  
 libflate = "1.3.0"

@@ -1,3 +1,4 @@
+#![warn(unused_extern_crates)]
 use chrono::Local;
 use clap::{arg, command, value_parser, Command};
 use libflate::gzip::Decoder;
@@ -127,13 +128,13 @@ fn main() {
             Command::new("list")
                 .about("Lists the contents of a catagory")
                 .args(&[
-                      arg!(-c --catagory <CATAOGRY> "The catagory to list the contents of").required(true),
+                    arg!(-c --catagory <CATAOGRY> "The catagory to list the contents of")
+                        .required(true),
                 ]),
         )
         .subcommand(
             // List command
-            Command::new("list-catagories")
-                .about("Lists all catagories")
+            Command::new("list-catagories").about("Lists all catagories"),
         )
         .subcommand(
             // Fill template command
