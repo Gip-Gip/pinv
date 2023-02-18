@@ -847,14 +847,22 @@ impl Db {
         // Next update the entry
         let query = format!("UPDATE {} SET {} WHERE KEY={}", catagory, fields_str, key);
 
-        self.connection.execute(&query, [])?;
-
         // Swap the keys if a new key was specified
         if let Some(new_key) = new_key {
             self.swap_key(key, new_key)?;
         }
 
-        Ok(())
+        match self.connection.execute(&query, []) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                // Swap the keys back if there's an error!
+                if let Some(new_key) = new_key {
+                    self.swap_key(new_key, key)?;
+                }
+
+                Err(Box::new(error))
+            }
+        }
     }
 
     /// Convert an SQL valueref into a string
