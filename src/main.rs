@@ -1,8 +1,8 @@
 use chrono::Local;
 use clap::{arg, command, value_parser, Command};
+use pinv::b64;
 use pinv::db::{Catagory, CatagoryField, DataType, Db, Entry, EntryField};
 use pinv::tui::Tui;
-use pinv::{b64, csv};
 use simple_error::bail;
 use std::error::Error;
 use std::fs;
@@ -111,6 +111,15 @@ fn main() {
                         .value_parser(value_parser!(u64)),
                 ]),
         )
+        .subcommand(
+            // Add subcommand
+            Command::new("modify")
+                .about("Modify an entry given a key")
+                .args(&[
+                    arg!(-k --key <KEY> "The key of the entry to modify.").required(true),
+                    arg!([FIELD] ... "A field to modify in the entry.").required(true),
+                ]),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -137,10 +146,6 @@ fn main() {
             // Parse all the fields
             for field in fields {
                 let (field_id, field_value) = split_field(&field).unwrap();
-                // Format the value
-                let field_value = db
-                    .format_string_to_field(&catagory, &field_id, &field_value)
-                    .unwrap();
 
                 let entry_field = EntryField::new(&field_id, &field_value);
 
@@ -301,6 +306,64 @@ fn main() {
             let field = EntryField::new("QUANTITY", &new_quantity.to_string());
 
             db.mod_entry(key, vec![field]).unwrap();
+        }
+        // Modify subcommand
+        Some(("modify", matches)) => {
+            let key: String = matches.get_one::<String>("key").unwrap().clone();
+            let fields: Vec<String> = matches
+                .get_many::<String>("FIELD")
+                .unwrap()
+                .cloned()
+                .collect();
+
+            // Convert the key from base64 to u64
+            let key = b64::to_u64(&key).unwrap();
+
+            let mut entry_fields: Vec<EntryField> = Vec::new();
+            // Parse all the fields
+            for field in fields {
+                let (field_id, field_value) = split_field(&field).unwrap();
+
+                let entry_field = EntryField::new(&field_id, &field_value);
+
+                entry_fields.push(entry_field);
+            }
+
+            // Grab the entry (to display)
+            let entry = db.grab_entry(key).unwrap();
+
+            println!("Old Entry:\n\n{}\n\nModified Fields:\n\n", entry);
+            // Get the fields that have been modified
+            for field in &entry_fields {
+                // Make sure the field isn't one of the hard-coded fields
+                match field.id.as_str() {
+                    "KEY" => println!("\tKEY: {} -> {}", b64::from_u64(entry.key), field.value),
+                    "LOCATION" => println!("\t LOCATION: {} -> {}", entry.location, field.value),
+                    "QUANTITY" => println!("\t QUANTITY: {} -> {}", entry.quantity, field.value),
+                    "CREATED" | "MODIFIED" => {
+                        panic!("Cannot alter the time of creation or modification!")
+                    }
+                    _ => {
+                        // Get the old field
+                        let old_field = entry
+                            .fields
+                            .iter()
+                            .find(|old_field| old_field.id == field.id)
+                            .unwrap();
+
+                        println!("\t{}: {} -> {}", old_field.id, old_field.value, field.value);
+                    }
+                };
+            }
+
+            match confirm() {
+                true => {}
+                false => {
+                    return;
+                }
+            }
+
+            db.mod_entry(key, entry_fields).unwrap();
         }
         _ => {
             panic!("Exhausted list of subcommands and subcommand_required prevents `None`");

@@ -303,7 +303,7 @@ impl fmt::Display for Entry {
 
         let mut out: String = format!(
             r#"ENTRY {}, CATAGORY {}:
-    LOCATION{foo: >padlen$} = '{}',
+    LOCATION{foo: >padlen$} = {},
     QUANTITY{foo: >padlen$} = {},
     CREATED {foo: >padlen$} = {},
     MODIFIED{foo: >padlen$} = {}"#,
@@ -489,8 +489,9 @@ impl Db {
         );
 
         for field in entry.fields {
-            let field_value = field.value;
             let field_id = field.id;
+            let field_value =
+                self.format_string_to_field(&entry.catagory_id, &field_id, &field.value)?;
 
             // Skip this field if the value is null
             if field_value.len() == 0 {
@@ -499,7 +500,6 @@ impl Db {
             // Verify they are valid names and types...
             Db::check_id_string(&field_id)?;
             let datatype = self.field_type(&entry.catagory_id, &field_id)?;
-            Db::check_value_string(&field_value, datatype)?;
 
             query_a.push(',');
             query_b.push(',');
@@ -848,6 +848,7 @@ impl Db {
                     new_key = Option::Some(field_value);
                     field_value.to_string()
                 }
+                // Otherise format the field
                 _ => self.format_string_to_field(&catagory, &field.id, &field.value)?,
             };
 
@@ -887,7 +888,7 @@ impl Db {
             ValueRef::Null => "NULL".to_owned(),
             ValueRef::Integer(i) => format!("{}", i),
             ValueRef::Real(f) => format!("{:e}", f),
-            ValueRef::Text(s) => format!("'{}'", String::from_utf8_lossy(s)),
+            ValueRef::Text(s) => format!("{}", String::from_utf8_lossy(s)),
             ValueRef::Blob(_) => "BLOB".to_owned(),
         }
     }
@@ -957,7 +958,7 @@ impl Db {
     }
 
     /// Format a string to be appropriate to the field it belongs to
-    pub fn format_string_to_field(
+    fn format_string_to_field(
         &self,
         catagory_id: &str,
         field_id: &str,
@@ -1094,43 +1095,43 @@ pub mod tests {
             fields: vec![
                 CatagoryField {
                     id: "MPN".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MFCD_BY".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "OHMS".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "WATTS".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TOLERANCE".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "PPM_C".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TERM_STYLE".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MAKEUP".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "CASE_CODE".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "DATASHEET".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
             ],
         }
@@ -1143,47 +1144,47 @@ pub mod tests {
             fields: vec![
                 CatagoryField {
                     id: "MPN".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MFCD_BY".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "FARADS".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "VOLTAGE_DC".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "VOLTAGE_AC".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "HOURS".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TOLERANCE".to_owned(),
-                    data_type: DataType::REAL,
+                    datatype: DataType::REAL,
                 },
                 CatagoryField {
                     id: "TERM_STYLE".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "MAKEUP".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "CASE_CODE".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
                 CatagoryField {
                     id: "DATASHEET".to_owned(),
-                    data_type: DataType::TEXT,
+                    datatype: DataType::TEXT,
                 },
             ],
         }
@@ -1201,11 +1202,11 @@ pub mod tests {
             fields: vec![
                 EntryField{
                     id: "MPN".to_owned(),
-                    value: "'ERJ-PM8F8204V'".to_owned()
+                    value: "ERJ-PM8F8204V".to_owned()
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'Panasonic'".to_owned()
+                    value: "Panasonic".to_owned()
                 },
                 EntryField {
                     id: "OHMS".to_owned(),
@@ -1225,19 +1226,19 @@ pub mod tests {
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'SMD'".to_owned()
+                    value: "SMD".to_owned()
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Thick Film'".to_owned()
+                    value: "Thick Film".to_owned()
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'1206'".to_owned()
+                    value: "1206".to_owned()
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
-                    value: "'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'".to_owned()
+                    value: "https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf".to_owned()
                 }
             ]
         }
@@ -1255,11 +1256,11 @@ pub mod tests {
             fields: vec![
                 EntryField {
                     id: "MPN".to_owned(),
-                    value: "'HPCR0819AK39RST'".to_owned(),
+                    value: "HPCR0819AK39RST".to_owned(),
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'TE Connectivity/Holsworthy'".to_owned(),
+                    value: "TE Connectivity/Holsworthy".to_owned(),
                 },
                 EntryField {
                     id: "OHMS".to_owned(),
@@ -1279,20 +1280,20 @@ pub mod tests {
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'Through Hole'".to_owned(),
+                    value: "Through Hole".to_owned(),
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Ceramic Comp'".to_owned(),
+                    value: "Ceramic Comp".to_owned(),
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'19.1x7.9 Axial'".to_owned(),
+                    value: "19.1x7.9 Axial".to_owned(),
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
                     value:
-                        "'https://www.mouser.com/datasheet/2/418/8/ENG_DS_1773193_1_B-2888555.pdf'"
+                        "https://www.mouser.com/datasheet/2/418/8/ENG_DS_1773193_1_B-2888555.pdf"
                             .to_owned(),
                 },
             ],
@@ -1311,11 +1312,11 @@ pub mod tests {
             fields: vec![
                 EntryField {
                     id: "MPN".to_owned(),
-                    value: "'HPCR0819AK39RST'".to_owned(),
+                    value: "HPCR0819AK39RST".to_owned(),
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'Vishay'".to_owned(),
+                    value: "Vishay".to_owned(),
                 },
                 EntryField {
                     id: "FARADS".to_owned(),
@@ -1331,19 +1332,19 @@ pub mod tests {
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'Through Hole'".to_owned(),
+                    value: "Through Hole".to_owned(),
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Aluminum Electrolytic'".to_owned(),
+                    value: "Aluminum Electrolytic".to_owned(),
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'25x12.5 Radial'".to_owned(),
+                    value: "25x12.5 Radial".to_owned(),
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
-                    value: "'https://www.vishay.com/doc?28499'".to_owned(),
+                    value: "https://www.vishay.com/doc?28499".to_owned(),
                 },
             ],
         }
@@ -1361,11 +1362,11 @@ pub mod tests {
             fields: vec![
                 EntryField {
                     id: "MPN".to_owned(),
-                    value: "'MC08EA220J-TF'".to_owned(),
+                    value: "MC08EA220J-TF".to_owned(),
                 },
                 EntryField {
                     id: "MFCD_BY".to_owned(),
-                    value: "'Cornell Dubilier - CDE'".to_owned(),
+                    value: "Cornell Dubilier - CDE".to_owned(),
                 },
                 EntryField {
                     id: "FARADS".to_owned(),
@@ -1385,21 +1386,20 @@ pub mod tests {
                 },
                 EntryField {
                     id: "TERM_STYLE".to_owned(),
-                    value: "'SMD'".to_owned(),
+                    value: "SMD".to_owned(),
                 },
                 EntryField {
                     id: "MAKEUP".to_owned(),
-                    value: "'Mica'".to_owned(),
+                    value: "Mica".to_owned(),
                 },
                 EntryField {
                     id: "CASE_CODE".to_owned(),
-                    value: "'0805'".to_owned(),
+                    value: "0805".to_owned(),
                 },
                 EntryField {
                     id: "DATASHEET".to_owned(),
-                    value:
-                        "'https://www.mouser.com/datasheet/2/88/CDUB_S_A0011956908_1-2540249.pdf'"
-                            .to_owned(),
+                    value: "https://www.mouser.com/datasheet/2/88/CDUB_S_A0011956908_1-2540249.pdf"
+                        .to_owned(),
                 },
             ],
         }
@@ -1410,7 +1410,7 @@ pub mod tests {
     fn test_db_create_field_from_string() {
         let field = CatagoryField::from_str("foo:i").unwrap();
 
-        assert_eq!(field.data_type, DataType::INTEGER);
+        assert_eq!(field.datatype, DataType::INTEGER);
     }
 
     // Test getting the sql type from a field
@@ -1461,16 +1461,16 @@ pub mod tests {
     fn test_db_new_entry() {
         let mut entry = Entry::new("resistor", 0, "bazville", 10, 0, 0);
 
-        entry.add_field(EntryField::from_str("mpn='ERJ-PM8F8204V'").unwrap());
-        entry.add_field(EntryField::from_str("mfcd_by='Panasonic'").unwrap());
+        entry.add_field(EntryField::from_str("mpn=ERJ-PM8F8204V").unwrap());
+        entry.add_field(EntryField::from_str("mfcd_by=Panasonic").unwrap());
         entry.add_field(EntryField::from_str("ohms=8.2e6").unwrap());
         entry.add_field(EntryField::from_str("watts=6.6e-1").unwrap());
         entry.add_field(EntryField::from_str("tolerance=1e-2").unwrap());
         entry.add_field(EntryField::from_str("ppm_c=1e2").unwrap());
-        entry.add_field(EntryField::from_str("term_style='SMD'").unwrap());
-        entry.add_field(EntryField::from_str("makeup='Thick Film'").unwrap());
-        entry.add_field(EntryField::from_str("case_code='1206'").unwrap());
-        entry.add_field(EntryField::from_str("datasheet='https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'").unwrap());
+        entry.add_field(EntryField::from_str("term_style=SMD").unwrap());
+        entry.add_field(EntryField::from_str("makeup=Thick Film").unwrap());
+        entry.add_field(EntryField::from_str("case_code=1206").unwrap());
+        entry.add_field(EntryField::from_str("datasheet=https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf").unwrap());
 
         assert_eq!(entry, test_entry_0());
     }
@@ -1574,20 +1574,20 @@ pub mod tests {
 
         let test_string: String = format!(
             r#"ENTRY 0, CATAGORY RESISTOR:
-    LOCATION   = 'bazville',
+    LOCATION   = bazville,
     QUANTITY   = 10,
     CREATED    = {time},
     MODIFIED   = {time},
-    MPN        = 'ERJ-PM8F8204V',
-    MFCD_BY    = 'Panasonic',
+    MPN        = ERJ-PM8F8204V,
+    MFCD_BY    = Panasonic,
     OHMS       = 8.2e6,
     WATTS      = 6.6e-1,
     TOLERANCE  = 1e-2,
     PPM_C      = 1e2,
-    TERM_STYLE = 'SMD',
-    MAKEUP     = 'Thick Film',
-    CASE_CODE  = '1206',
-    DATASHEET  = 'https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf'"#,
+    TERM_STYLE = SMD,
+    MAKEUP     = Thick Film,
+    CASE_CODE  = 1206,
+    DATASHEET  = https://www.mouser.com/datasheet/2/315/Panasonic_Resistor_ERJ_P_PA_PM_Series_022422-2933625.pdf"#,
             time = Local.timestamp_opt(0, 0).unwrap().to_string()
         );
 

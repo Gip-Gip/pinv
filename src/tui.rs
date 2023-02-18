@@ -742,18 +742,7 @@ impl Tui {
 
         for (i, value) in cache.fields_edited[3..].iter().enumerate() {
             if value.len() > 0 {
-                let field_value = match cache.db.format_string_to_field(
-                    &cache.catagory_selected,
-                    &fields[i],
-                    value,
-                ) {
-                    Ok(field_value) => field_value,
-                    Err(error) => {
-                        Self::error_dialog(cursive, error);
-                        return;
-                    }
-                };
-                entry.add_field(EntryField::new(&fields[i], &field_value));
+                entry.add_field(EntryField::new(&fields[i], &value));
             }
         }
 
@@ -794,7 +783,7 @@ impl Tui {
         let key = EntryField::new("KEY", &b64::from_u64(entry.key));
         // Add quotes to be removed later
         // !TODO! make this less hacky
-        let location = EntryField::new("LOCATION", &format!("'{}'", entry.location));
+        let location = EntryField::new("LOCATION", &format!("{}", entry.location));
         let quantity = EntryField::new("QUANTITY", &entry.quantity.to_string());
         let mut fields: Vec<EntryField> = vec![key, location, quantity];
 
@@ -827,13 +816,7 @@ impl Tui {
             let field_id = format!("{}:", field.id);
             let field_id = TextView::new(format!("{:<width$}", field_id, width = max_size + 2));
 
-            let field_value = match field.value.as_str() {
-                "NULL" => field.value.clone(),
-                _ => match types[i] {
-                    DataType::TEXT => field.value[1..field.value.len() - 1].to_owned(),
-                    _ => field.value.clone(),
-                },
-            };
+            let field_value = field.value.clone();
 
             let field_entry = EditView::new()
                 .content(field_value)
@@ -1001,17 +984,6 @@ impl Tui {
         let operator = operator_select_list.selection().unwrap();
         // Format the constraint value according to it's type
         let constraint_value = constraint_edit_view.get_content();
-        let constraint_value = match cache.db.format_string_to_field(
-            &cache.catagory_selected,
-            &field_id,
-            &constraint_value,
-        ) {
-            Ok(constraint_value) => constraint_value,
-            Err(error) => {
-                Self::error_dialog(cursive, error);
-                return;
-            }
-        };
 
         let constraint = format!("{}{}{}", field_id, operator, constraint_value);
 
