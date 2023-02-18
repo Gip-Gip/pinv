@@ -1,12 +1,14 @@
 use chrono::Local;
 use clap::{arg, command, value_parser, Command};
-use pinv::b64;
+use libflate::gzip::Decoder;
 use pinv::db::{Catagory, CatagoryField, DataType, Db, Entry, EntryField};
 use pinv::tui::Tui;
+use pinv::{b64, templates};
 use simple_error::bail;
 use std::error::Error;
 use std::fs;
 use std::io::stdin;
+use std::io::Read;
 
 fn confirm() -> bool {
     println!("Confirm?(y/n)");
@@ -118,6 +120,17 @@ fn main() {
                 .args(&[
                     arg!(-k --key <KEY> "The key of the entry to modify.").required(true),
                     arg!([FIELD] ... "A field to modify in the entry.").required(true),
+                ]),
+        )
+        .subcommand(
+            // Fill template command
+            Command::new("fill_template")
+                .about("Fill out an svg template with the currently unused keys")
+                .args(&[
+                    arg!([OUT] "File to write to, will be an SVG no matter what suffix")
+                        .required(true),
+                    arg!(-b --builtin <BUILTIN> "Use a builtin template").required(false),
+                    arg!(-i --infile <IN> "SVG template to read and fill out").required(false),
                 ]),
         )
         .get_matches();
@@ -338,8 +351,8 @@ fn main() {
                 // Make sure the field isn't one of the hard-coded fields
                 match field.id.as_str() {
                     "KEY" => println!("\tKEY: {} -> {}", b64::from_u64(entry.key), field.value),
-                    "LOCATION" => println!("\t LOCATION: {} -> {}", entry.location, field.value),
-                    "QUANTITY" => println!("\t QUANTITY: {} -> {}", entry.quantity, field.value),
+                    "LOCATION" => println!("\tLOCATION: {} -> {}", entry.location, field.value),
+                    "QUANTITY" => println!("\tQUANTITY: {} -> {}", entry.quantity, field.value),
                     "CREATED" | "MODIFIED" => {
                         panic!("Cannot alter the time of creation or modification!")
                     }
@@ -364,6 +377,37 @@ fn main() {
             }
 
             db.mod_entry(key, entry_fields).unwrap();
+        }
+        // Fill template subcommand
+        Some(("fill_template", matches)) => {
+            let template_data: Vec<u8> = match matches.get_one::<String>("builtin") {
+                Some(template_id) => templates::TEMPLATES
+                    .iter()
+                    .find(|template| template.id == template_id)
+                    .expect("Template not found!")
+                    .get_data(),
+                None => {
+                    let filename = matches
+                        .get_one::<String>("infile")
+                        .expect("Need a template specified with -i or -b!");
+                    let filedata = fs::read(filename).unwrap();
+
+                    let mut decoder = Decoder::new(&filedata[..]).unwrap();
+                    let mut data: Vec<u8> = Vec::new();
+
+                    decoder.read_to_end(&mut data).unwrap();
+
+                    data
+                }
+            };
+
+            let template_string = String::from_utf8_lossy(&template_data);
+
+            let filled_template = db.fill_svg_template(&template_string).unwrap();
+
+            let out_name = matches.get_one::<String>("OUT").unwrap();
+
+            fs::write(out_name, filled_template).unwrap();
         }
         _ => {
             panic!("Exhausted list of subcommands and subcommand_required prevents `None`");

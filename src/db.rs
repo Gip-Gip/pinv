@@ -800,7 +800,7 @@ impl Db {
     }
 
     /// Take an SVG template and fill it with all available keys
-    pub fn fill_svg_template(&self, data: String) -> Result<String, Box<dyn Error>> {
+    pub fn fill_svg_template(&self, data: &str) -> Result<String, Box<dyn Error>> {
         let chunks: Vec<String> = data.split("FOO!").map(|chunk| chunk.to_owned()).collect();
 
         let mut data = String::new();

@@ -3,4 +3,5 @@ pub static APPLICATION: &str = "pinv";
 
 pub mod b64;
 pub mod db;
+pub mod templates;
 pub mod tui;

@@ -1358,7 +1358,7 @@ impl Tui {
             .child(out_file_row);
 
         let dialog = Dialog::around(layout)
-            .title("Fill Out Printable SVT Template")
+            .title("Fill Out Printable SVG Template")
             .button("Fill!", |cursive| {
                 Self::fill_template_dialog_submit(cursive)
             });
@@ -1396,7 +1396,7 @@ impl Tui {
             }
         };
 
-        let out_data = match cache.db.fill_svg_template(in_data) {
+        let out_data = match cache.db.fill_svg_template(&in_data) {
             Ok(out_data) => out_data,
             Err(error) => {
                 Self::error_dialog(cursive, error);
