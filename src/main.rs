@@ -78,7 +78,7 @@ fn main() {
         .subcommand(
             // Add subcommand
             Command::new("add")
-                .about("Add an entry to a catagory")
+                .about("Add an entry to a catagory.")
                 .args(&[
                     arg!(-c --catagory <CATAGORY> "The catagory to add the entry to.")
                         .required(true),
@@ -94,31 +94,31 @@ fn main() {
         .subcommand(
             // Add catagory subcommand
             Command::new("add_catagory")
-                .about("Add a new catagory")
+                .about("Add a new catagory.")
                 .args(&[
-                    arg!(-c --catagory <CATAGORY> "The name of the catagory").required(true),
-                    arg!([FIELD] ... "A field to apply to the catagory").required(true),
+                    arg!(-c --catagory <CATAGORY> "The name of the catagory.").required(true),
+                    arg!([FIELD] ... "A field to apply to the catagory.").required(true),
                 ]),
         )
         .subcommand(
             // Find subcommand
             Command::new("find")
-                .about("Find an entry given a key")
-                .args(&[arg!([KEY] "The key of the entry to look up").required(true)]),
+                .about("Find an entry given a key.")
+                .args(&[arg!([KEY] "The key of the entry to look up.").required(true)]),
         )
         .subcommand(
             // Delete subcommand
             Command::new("delete")
-                .about("Delete an entry given a key")
-                .args(&[arg!([KEY] "The key of the entry to delete").required(true)]),
+                .about("Delete an entry given a key.")
+                .args(&[arg!([KEY] "The key of the entry to delete.").required(true)]),
         )
         .subcommand(
             // Give subcommand
             Command::new("give")
-                .about("Add to the quantity of an entry")
+                .about("Add to the quantity of an entry.")
                 .args(&[
-                    arg!(-k --key <KEY> "The key of the entry to give to"),
-                    arg!([QUANTITY] "The quantity to add to the entry")
+                    arg!(-k --key <KEY> "The key of the entry to give to."),
+                    arg!([QUANTITY] "The quantity to add to the entry.")
                         .required(true)
                         .value_parser(value_parser!(u64)),
                 ]),
@@ -126,10 +126,10 @@ fn main() {
         .subcommand(
             // Take subcommand
             Command::new("take")
-                .about("Take from the quantity of an entry")
+                .about("Take from the quantity of an entry.")
                 .args(&[
-                    arg!(-k --key <KEY> "The key of the entry to take from"),
-                    arg!([QUANTITY] "The quantity to take from the entry")
+                    arg!(-k --key <KEY> "The key of the entry to take from."),
+                    arg!([QUANTITY] "The quantity to take from the entry.")
                         .required(true)
                         .value_parser(value_parser!(u64)),
                 ]),
@@ -146,25 +146,25 @@ fn main() {
         .subcommand(
             // List command
             Command::new("list")
-                .about("Lists the contents of a catagory")
+                .about("Lists the contents of a catagory.")
                 .args(&[
-                    arg!(-c --catagory <CATAOGRY> "The catagory to list the contents of")
+                    arg!(-c --catagory <CATAOGRY> "The catagory to list the contents of.")
                         .required(true),
                 ]),
         )
         .subcommand(
             // List command
-            Command::new("list-catagories").about("Lists all catagories"),
+            Command::new("list-catagories").about("Lists all catagories."),
         )
         .subcommand(
             // Fill template command
             Command::new("fill_template")
-                .about("Fill out an svg template with the currently unused keys")
+                .about("Fill out an svg template with the currently unused keys.")
                 .args(&[
-                    arg!([OUT] "File to write to, will be an SVG no matter what suffix")
+                    arg!([OUT] "File to write to, will be an SVG no matter what suffix.")
                         .required(true),
-                    arg!(-b --builtin <BUILTIN> "Use a builtin template").required(false),
-                    arg!(-i --infile <IN> "SVG template to read and fill out").required(false),
+                    arg!(-b --builtin <BUILTIN> "Use a builtin template.").required(false),
+                    arg!(-i --infile <IN> "GZ-SVG template to read and fill out.").required(false),
                 ]),
         )
         .get_matches();
