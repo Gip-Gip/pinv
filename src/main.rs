@@ -123,6 +123,19 @@ fn main() {
                 ]),
         )
         .subcommand(
+            // List command
+            Command::new("list")
+                .about("Lists the contents of a catagory")
+                .args(&[
+                      arg!(-c --catagory <CATAOGRY> "The catagory to list the contents of").required(true),
+                ]),
+        )
+        .subcommand(
+            // List command
+            Command::new("list-catagories")
+                .about("Lists all catagories")
+        )
+        .subcommand(
             // Fill template command
             Command::new("fill_template")
                 .about("Fill out an svg template with the currently unused keys")
@@ -377,6 +390,26 @@ fn main() {
             }
 
             db.mod_entry(key, entry_fields).unwrap();
+        }
+        // List subcommand
+        // !TODO! Make more useful
+        Some(("list", matches)) => {
+            let catagory_id: String = matches.get_one::<String>("catagory").unwrap().clone();
+
+            let entries = db.search_catagory(&catagory_id, &vec![]).unwrap();
+
+            for entry in entries {
+                println!("{}\n\n", entry);
+            }
+        }
+        // List catagories subcommand
+        // !TODO! Make more useful
+        Some(("list-catagories", _)) => {
+            let catagories = db.list_catagories().unwrap();
+
+            for catagory in catagories {
+                println!("{}", catagory);
+            }
         }
         // Fill template subcommand
         Some(("fill_template", matches)) => {
