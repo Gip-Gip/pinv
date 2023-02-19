@@ -805,7 +805,7 @@ impl Tui {
 
         // Generate rows in the dialog to reflect the fields to be modified
         let mut layout = LinearLayout::vertical();
-        // First find the largest field name
+        // First find the largest field name(for padding reasons)
         let mut max_size: usize = 0;
 
         for field in &fields {

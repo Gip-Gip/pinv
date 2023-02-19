@@ -900,7 +900,7 @@ impl Db {
     /// Convert an SQL valueref into a string
     fn sqlval_to_string(value: ValueRef) -> String {
         match value {
-            ValueRef::Null => "NULL".to_owned(),
+            ValueRef::Null => "".to_owned(),
             ValueRef::Integer(i) => format!("{}", i),
             ValueRef::Real(f) => format!("{:e}", f),
             ValueRef::Text(s) => format!("{}", String::from_utf8_lossy(s)),
