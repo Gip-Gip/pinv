@@ -20,6 +20,8 @@ use crate::b64;
 use crate::db;
 use crate::db::Catagory;
 use crate::db::CatagoryField;
+use crate::db::Condition;
+use crate::db::ConditionOperator;
 use crate::db::Db;
 use crate::db::Entry;
 use crate::db::EntryField;
@@ -337,7 +339,7 @@ impl Tui {
             if i > 0 {
                 status_string.push_str(", ");
             }
-            status_string.push_str(&constraint);
+            status_string.push_str(&constraint.to_string());
         }
 
         status_header.set_content(&status_string);
@@ -934,9 +936,20 @@ impl Tui {
         let field_select_list = field_select_list.with_name(TUI_FIELD_SELECT_ID);
 
         // The operators the user can use
-        let mut operator_select_list = SelectView::new().popup();
+        let mut operator_select_list = SelectView::<ConditionOperator>::new().popup();
 
-        operator_select_list.add_all_str(vec!["=", "!=", ">", "<", ">=", "<="]);
+        operator_select_list.add_all(
+            vec![
+                ConditionOperator::Equal,
+                ConditionOperator::NotEqual,
+                ConditionOperator::LessThan,
+                ConditionOperator::GreaterThan,
+                ConditionOperator::LessThanEqual,
+                ConditionOperator::GreaterThanEqual,
+            ]
+            .into_iter()
+            .map(|x| (format!("{}", x), x)),
+        );
 
         let operator_select_list = operator_select_list.with_name(TUI_OP_SELECT_ID);
 
@@ -963,7 +976,7 @@ impl Tui {
         // Grab the needed views
         let field_select_list: ViewRef<SelectView> =
             cursive.find_name(TUI_FIELD_SELECT_ID).unwrap();
-        let operator_select_list: ViewRef<SelectView> =
+        let operator_select_list: ViewRef<SelectView<ConditionOperator>> =
             cursive.find_name(TUI_OP_SELECT_ID).unwrap();
         let constraint_edit_view: ViewRef<EditView> =
             cursive.find_name(TUI_CONSTRAINT_EDIT_ID).unwrap();
@@ -975,7 +988,7 @@ impl Tui {
         // Format the constraint value according to it's type
         let constraint_value = constraint_edit_view.get_content();
 
-        let constraint = format!("{}{}{}", field_id, operator, constraint_value);
+        let constraint = Condition::new(&field_id, *operator, &constraint_value);
 
         cache.constraints.push(constraint);
 
@@ -1542,5 +1555,5 @@ struct TuiCache {
     /// fields.
     pub fields_edited: Vec<String>,
     pub edited_ids: Vec<usize>,
-    pub constraints: Vec<String>,
+    pub constraints: Vec<Condition>,
 }

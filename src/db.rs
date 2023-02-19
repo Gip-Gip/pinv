@@ -69,6 +69,69 @@ impl DataType {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ConditionOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanEqual,
+    GreaterThanEqual,
+}
+
+impl ConditionOperator {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Equal => "=".to_string(),
+            Self::NotEqual => "!=".to_string(),
+            Self::LessThan => "<".to_string(),
+            Self::GreaterThan => ">".to_string(),
+            Self::LessThanEqual => "<=".to_string(),
+            Self::GreaterThanEqual => ">=".to_string(),
+        }
+    }
+
+    pub fn to_sql(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl fmt::Display for ConditionOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+/// Filter Condition When Searching
+pub struct Condition {
+    pub field_id: String,
+    pub operator: ConditionOperator,
+    pub value: String,
+}
+
+impl Condition {
+    pub fn new(field_id: &str, operator: ConditionOperator, value: &str) -> Self {
+        let field_id = field_id.to_string();
+        let value = value.to_string();
+
+        Self {
+            field_id,
+            operator,
+            value,
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}{}{}", self.field_id, self.operator, self.value)
+    }
+}
+
+impl fmt::Display for Condition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 /// Datatypes in SQLite
 pub enum SQLValue {
     /// Null, nothing
@@ -783,7 +846,7 @@ impl Db {
     pub fn search_catagory(
         &self,
         catagory_id: &str,
-        conditions: &[String],
+        conditions: &[Condition],
     ) -> Result<Vec<Entry>, Box<dyn Error>> {
         if conditions.len() == 0 {
             let query = format!("SELECT * FROM {}", catagory_id);
@@ -794,17 +857,18 @@ impl Db {
         let mut query = format!("SELECT * FROM {} WHERE ", catagory_id);
 
         for (i, condition) in conditions.iter().enumerate() {
-            let condition_split: Vec<&str> = condition.split('=').collect();
+            let field_id = &condition.field_id;
+            let operator = condition.operator.to_sql();
+            let value = &condition.value;
 
-            if condition_split.len() != 2 {
-                bail!("Invalid condition \"{}\"!", condition);
-            }
+            // Make sure the field_id is valid and format the value
+            Self::check_id_string(&field_id)?;
+            let value = Self::format_string_to_field(&self, catagory_id, &field_id, &value)?;
 
-            let id = condition_split[0].to_uppercase();
-            let value = condition_split[1];
+            query.push_str(&format!("{}{}{}", field_id, operator, value));
 
-            query.push_str(format!("{}={}", id, value).as_str());
-
+            // Check to see if we are at the end of the list of conditions,
+            // and add a semicolor if close
             query.push_str(match i.cmp(&(conditions.len() - 1)) {
                 cmp::Ordering::Less => " AND ",
                 _ => ";",
