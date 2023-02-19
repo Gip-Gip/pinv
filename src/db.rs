@@ -1043,6 +1043,12 @@ impl Db {
         field_id: &str,
         field_value: &str,
     ) -> Result<String, Box<dyn Error>> {
+        // If the string is blank, it's "NULL" and therefore we don't need to
+        // find the datatype
+        if field_value.len() == 0 {
+            return Ok("NULL".to_string());
+        }
+
         let datatype = self.field_type(catagory_id, field_id)?;
 
         let out = match datatype {
