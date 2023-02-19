@@ -206,3 +206,20 @@ Subtracts the given number from an entry's quantity using it's base64 key
 While in a very early version, I already personally have a lot of data stored in
 my pinv so I will **guarantee** all pinv versions to be at the very least backwards
 compatable with previously made databases.
+
+## Images
+
+#### Me using printed labels to organise electrical components.
+![me using printed labels to organize electronic components](https://openapeshop.org/software/pinv/pinv_irl_example.jpg)
+
+#### In catagory view.
+![in catagory view](https://openapeshop.org/software/pinv/catagory_view.png)
+
+#### Filling out a template to be printed.
+![filling out a template](https://openapeshop.org/software/pinv/fill_template_mode.png)
+
+#### Adding an entry to the cable catagory.
+![adding an entry](https://openapeshop.org/software/pinv/add_mode.png)
+
+#### Adding to the quantity of an entry.
+![adding to an entry](https://openapeshop.org/software/pinv/give_mode.png)
