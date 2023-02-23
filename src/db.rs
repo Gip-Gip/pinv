@@ -791,7 +791,7 @@ impl Db {
     pub fn list_catagories(&self) -> Result<Vec<String>, Box<dyn Error>> {
         // Select all tables excluding the keys table
         let mut statement = self.connection.prepare(
-            "SELECT name FROM sqlite_schema WHERE type='table' AND name!='KEYS' ORDER BY name;",
+            "SELECT name FROM sqlite_master WHERE type='table' AND name!='KEYS' ORDER BY name;",
         )?;
 
         let mut rows = statement.query([])?;
@@ -1689,8 +1689,11 @@ pub mod tests {
         db.add_entry(test_entry_1()).unwrap();
 
         assert_eq!(
-            db.search_catagory("RESISTOR", &vec!["ohms=8.2e6".to_string()])
-                .unwrap()[0],
+            db.search_catagory(
+                "RESISTOR",
+                &vec![Condition::new("OHMS", ConditionOperator::Equal, "8.2e6")]
+            )
+            .unwrap()[0],
             test_entry_0()
         );
     }
