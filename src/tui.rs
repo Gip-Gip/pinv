@@ -565,7 +565,7 @@ impl Tui {
 
         let fields: Vec<CatagoryField> = field_strs
             .iter()
-            .map(|field_str| CatagoryField::from_str(&field_str).unwrap())
+            .map(|field_str| CatagoryField::from_str(&field_str).unwrap_or(CatagoryField::new("", db::DataType::NULL)))
             .collect();
 
         let catagory = Catagory::with_fields(&catagory_name, fields);
