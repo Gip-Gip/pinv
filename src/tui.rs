@@ -530,7 +530,7 @@ impl Tui {
             Self::add_catagory_field_dialog(cursive)
         });
 
-        let field_list = TextView::new("").with_name(TUI_FIELD_LIST_ID);
+        let field_list = SelectView::<CatagoryField>::new().with_name(TUI_FIELD_LIST_ID);
 
         let layout = LinearLayout::vertical()
             .child(name_row)
@@ -553,19 +553,21 @@ impl Tui {
         // Grab the views we need
         let catagory_name_view: ViewRef<EditView> =
             cursive.find_name(TUI_CATAGORY_NAME_ID).unwrap();
-        let field_list_view: ViewRef<TextView> = cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
+        let field_list_view: ViewRef<SelectView<CatagoryField>> =
+            cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
 
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let catagory_name = catagory_name_view.get_content();
-        let field_list_content = field_list_view.get_content();
 
-        let field_strs: Vec<&str> = field_list_content.source().split('\n').collect();
-
-        let fields: Vec<CatagoryField> = field_strs
+        let fields = field_list_view
             .iter()
-            .map(|field_str| CatagoryField::from_str(&field_str).unwrap_or(CatagoryField::new("", db::DataType::NULL)))
+            .map(|row| {
+                let (_, field) = row;
+
+                field.clone()
+            })
             .collect();
 
         let catagory = Catagory::with_fields(&catagory_name, fields);
@@ -621,30 +623,19 @@ impl Tui {
         // Grab the views we need
         let type_menu_view: ViewRef<SelectView<db::DataType>> =
             cursive.find_name(TUI_TYPE_MENU_ID).unwrap();
-        let mut field_list_view: ViewRef<TextView> = cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
+        let mut field_list_view: ViewRef<SelectView<CatagoryField>> =
+            cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
         let field_name_view: ViewRef<EditView> = cursive.find_name(TUI_FIELD_NAME_ID).unwrap();
 
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Need to make sure the content of the field list view isn't in use by something else when
-        // set content is called, so ensure the lifetime of any modifications end here
-        let catagory_field_string = {
-            let mut old_view_string = field_list_view.get_content().source().to_string();
+        let field = CatagoryField::new(
+            &field_name_view.get_content().to_uppercase(),
+            *type_menu_view.selection().unwrap(),
+        );
 
-            if old_view_string.len() > 0 {
-                old_view_string.push('\n');
-            }
-
-            format!(
-                "{}{}:{}",
-                old_view_string,
-                field_name_view.get_content(),
-                type_menu_view.selection().unwrap().get_char()
-            )
-        };
-
-        field_list_view.set_content(catagory_field_string);
+        field_list_view.add_item(field.to_string(), field);
 
         cache.dialog_layers -= 1;
         cursive.pop_layer();

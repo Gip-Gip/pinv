@@ -28,7 +28,7 @@ use simple_error::bail;
 use std::{cmp, error::Error, fs};
 
 /// Datatypes in PINV
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DataType {
     /// Null, nothing
     NULL,
@@ -200,6 +200,10 @@ impl CatagoryField {
             DataType::TEXT => "TEXT".to_owned(),
             DataType::BLOB => "BLOB".to_owned(),
         }
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}:{}", self.id, self.datatype.get_char())
     }
 }
 
@@ -506,6 +510,11 @@ impl Db {
     ///
     /// More or less just converts the catagory struct into an SQL table.
     pub fn add_catagory(&mut self, catagory: Catagory) -> Result<(), Box<dyn Error>> {
+        // First make sure we have fields in our catagory...
+        if catagory.fields.len() == 0 {
+            bail!("No fields in catagory \"{}!\"", catagory.id);
+        }
+
         // Verify the catagory won't cause any problems...
         Db::check_id_string(&catagory.id)?;
 
