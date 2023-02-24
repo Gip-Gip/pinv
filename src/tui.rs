@@ -27,27 +27,25 @@ use crate::db::Entry;
 use crate::db::EntryField;
 use crate::templates;
 use chrono::{Local, TimeZone};
-use cursive::align::HAlign;
-use cursive::align::VAlign;
 use cursive::event::Event;
 use cursive::event::Key;
 use cursive::view::Nameable;
 use cursive::view::Resizable;
-use cursive::view::Selector;
 use cursive::views::Button;
 use cursive::views::Dialog;
 use cursive::views::EditView;
 use cursive::views::LinearLayout;
 use cursive::views::NamedView;
+use cursive::views::OnEventView;
 use cursive::views::ScrollView;
 use cursive::views::SelectView;
 use cursive::views::TextView;
 use cursive::views::ViewRef;
 use cursive::Cursive;
 use cursive::CursiveExt;
-use cursive::View;
 use directories::ProjectDirs;
 use libflate::gzip::Decoder;
+use simple_error::bail;
 use std::cmp;
 use std::error::Error;
 use std::fs;
@@ -56,12 +54,6 @@ use std::path::PathBuf;
 
 // ID of the list view
 static TUI_LIST_ID: &str = "list";
-
-// ID of the list header
-static TUI_LIST_HEADER_ID: &str = "list_header";
-
-// ID of the status header
-static TUI_STATUS_HEADER_ID: &str = "status_header";
 
 // Column Padding
 static TUI_COLUMN_PADDING: &str = " | ";
@@ -87,8 +79,6 @@ static TUI_FIND_KEY_ID: &str = "find_key";
 
 static TUI_FIELD_LIST_ID: &str = "field_list";
 
-static TUI_LIST_SCROLL_ID: &str = "list_scroll";
-
 static TUI_OUT_FILE_ID: &str = "out_file";
 
 static TUI_TEMPLATE_LIST_ID: &str = "template_list";
@@ -101,6 +91,8 @@ static TUI_FIELD_SELECT_ID: &str = "field_select";
 
 static TUI_OP_SELECT_ID: &str = "op_select";
 
+static TUI_VIEW_ID: &str = "view";
+
 /// Enum used when loading templates to determin if it's a built in or a file
 enum TemplateType {
     // Built-in template
@@ -109,6 +101,11 @@ enum TemplateType {
     File(String),
     // Not selected
     NS,
+}
+
+enum LayerType {
+    View(NamedView<OnEventView<LinearLayout>>),
+    Dialog(OnEventView<Dialog>),
 }
 
 /// Struct used for interfacing with the TUI. Uses the Cursive library.
@@ -138,233 +135,263 @@ impl Tui {
         }
 
         let tui_cache = TuiCache {
-            catagory_selected: String::new(),
-            catagories_queried: vec![],
-            dialog_layers: 0,
             db,
             template_dir,
-            fields_edited: vec![String::new()],
-            entries_queried: Vec::new(),
-            entry_selected: 0,
             edited_ids: Vec::new(),
             constraints: Vec::new(),
+            escape_action: Vec::new(),
+            selected_catagory: String::new(),
+            selected_key: 0,
         };
 
         tui.cursive.set_user_data(tui_cache);
 
         tui.prime(); // Prime all event handlers
-        tui.layout(); // Lay out all the views
-
         Ok(tui)
     }
 
     /// Run the TUI instance
     pub fn run(&mut self) {
-        Self::populate_with_catagories(&mut self.cursive);
+        Self::push_layer(&mut self.cursive, Self::catagory_view);
         self.cursive.run_crossterm().unwrap();
+    }
+
+    /// Call to add a layer
+    fn push_layer(
+        cursive: &mut Cursive,
+        init: fn(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>>,
+    ) {
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        cache.escape_action.push(init);
+
+        let layer = match init(cursive) {
+            Ok(layer) => layer,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        match layer {
+            LayerType::View(view) => {
+                cursive.pop_layer();
+                cursive.add_fullscreen_layer(view);
+            }
+            LayerType::Dialog(dialog) => {
+                // Clear all bindings of the view
+                let mut view: ViewRef<OnEventView<LinearLayout>> =
+                    cursive.find_name(TUI_VIEW_ID).unwrap();
+
+                view.clear_callbacks();
+
+                cursive.add_layer(dialog);
+            }
+        }
+    }
+
+    /// Call to pop a layer
+    fn pop_layer(cursive: &mut Cursive) {
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        if cache.escape_action.len() > 1 {
+            cache.escape_action.pop();
+
+            let escape_action = cache.escape_action.last().unwrap();
+
+            let layer = match escape_action(cursive) {
+                Ok(layer) => layer,
+                Err(error) => {
+                    Self::fatal_error_dialog(cursive, error);
+                    return;
+                }
+            };
+
+            cursive.pop_layer();
+
+            // If it's a dialog, do nothing. If it's a view, rebuild the view
+            if let LayerType::View(view) = layer {
+                // We also need to pop the view
+                cursive.pop_layer();
+                cursive.add_fullscreen_layer(view);
+            }
+        } else {
+            Self::push_layer(cursive, Self::exit_dialog);
+        }
+    }
+
+    /// Pop all layers except the base layer
+    fn base_layer(cursive: &mut Cursive) {
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        let escape_action = cache.escape_action[0];
+
+        cache.escape_action.clear();
+
+        while let Some(_) = cursive.pop_layer() {}
+
+        Self::push_layer(cursive, escape_action);
     }
 
     /// Used for binding keys and other event handlers to the TUI instance.
     fn prime(&mut self) {
-        // Bind escape to a special function which will either exit entry view or exit the program,
-        // depending on what view we're in. Make it a post binding since we only want it to trigger
-        // when in either catagory or entry view, not in creation dialogs or etc.
+        // Bind esc to do whatever is at the top of the escape action stack
         self.cursive
-            .set_on_post_event(Event::Key(Key::Esc), |cursive| Self::escape(cursive));
+            .set_on_post_event(Event::Key(Key::Esc), |cursive| Self::pop_layer(cursive));
+    }
 
-        // Bind a to add mode
-        self.cursive
-            .set_on_post_event(Event::Char('a'), |cursive| Self::add_dialog(cursive));
-
+    /// Bindings for all views
+    fn prime_view(view: &mut OnEventView<LinearLayout>) {
         // Bind f to find mode
-        self.cursive
-            .set_on_post_event(Event::Char('f'), |cursive| Self::find_dialog(cursive));
+        view.set_on_event(Event::Char('f'), |cursive| {
+            Self::push_layer(cursive, Self::find_dialog)
+        });
+
+        // Bind p to fill template mode
+        view.set_on_event(Event::Char('p'), |cursive| {
+            Self::push_layer(cursive, Self::fill_template_dialog)
+        });
+    }
+
+    /// Bindings for catagory view
+    fn prime_catagory_view(view: &mut OnEventView<LinearLayout>) {
+        Self::prime_view(view);
+
+        // Bind a to add_catagory mode
+        view.set_on_event(Event::Char('a'), |cursive| {
+            Self::push_layer(cursive, Self::add_catagory_dialog)
+        });
+    }
+
+    /// Bindings for entry view
+    fn prime_entry_view(view: &mut OnEventView<LinearLayout>) {
+        Self::prime_view(view);
+
+        // Bind a to add_entry mode
+        view.set_on_event(Event::Char('a'), |cursive| {
+            Self::push_layer(cursive, Self::add_entry_dialog)
+        });
 
         // Bind + and - to give and take mode
-        self.cursive.set_on_post_event(Event::Char('+'), |cursive| {
-            Self::give_take_dialog(cursive, true)
+        view.set_on_event(Event::Char('+'), |cursive| {
+            Self::push_layer(cursive, Self::give_dialog)
         });
-        self.cursive.set_on_post_event(Event::Char('-'), |cursive| {
-            Self::give_take_dialog(cursive, false)
-        });
-
-        // Bind p to fill-template mode
-        self.cursive.set_on_post_event(Event::Char('p'), |cursive| {
-            Self::fill_template_dialog(cursive)
+        view.set_on_event(Event::Char('-'), |cursive| {
+            Self::push_layer(cursive, Self::take_dialog)
         });
 
-        // Bind m to modify entry mode
-        self.cursive
-            .set_on_post_event(Event::Char('m'), |cursive| Self::mod_entry_dialog(cursive));
+        // Bind m to modify mode
+        view.set_on_event(Event::Char('m'), |cursive| {
+            Self::push_layer(cursive, Self::mod_entry_dialog)
+        });
 
-        // Bind F to filter mode
-        self.cursive
-            .set_on_post_event(Event::Char('F'), |cursive| Self::filter_dialog(cursive));
+        // Bind f to filter mode
+        view.set_on_event(Event::Char('F'), |cursive| {
+            Self::push_layer(cursive, Self::filter_dialog)
+        });
 
-        // Bind c to clear last restraint
-        self.cursive
-            .set_on_post_event(Event::Char('c'), |cursive| Self::pop_constraint(cursive));
+        // Bind c to clear last constraint
+        view.set_on_event(Event::Char('c'), |cursive| {
+            Self::push_layer(cursive, Self::pop_constraint)
+        });
 
         // Bind C to clear all constraints
-        self.cursive
-            .set_on_post_event(Event::Char('C'), |cursive| Self::clear_constraints(cursive));
+        view.set_on_event(Event::Char('C'), |cursive| {
+            Self::push_layer(cursive, Self::clear_constraints)
+        });
 
-        // Bind del to delete mode
-        self.cursive
-            .set_on_post_event(Event::Key(Key::Del), |cursive| Self::delete_dialog(cursive));
+        // Bind Del to the delete dialog
+        view.set_on_event(Event::Key(Key::Del), |cursive| {
+            Self::push_layer(cursive, Self::delete_dialog)
+        });
     }
 
-    /// Used to lay out all views in the TUI instance.
-    fn layout(&mut self) {
-        // List view is the primary(unchangin) view for displaying data
-        let list_view: SelectView<usize> = SelectView::new()
-            .on_submit(|cursive, index| Self::list_view_on_submit(cursive, *index))
-            .h_align(HAlign::Left)
-            .v_align(VAlign::Top);
-
-        // The scroll view for exclusively vertical scrolling of the list view
-        let list_view_scroll =
-            ScrollView::new(list_view.with_name(TUI_LIST_ID)).with_name(TUI_LIST_SCROLL_ID);
-
-        // The list view header for designating what each column is/represents
-        let list_view_header = TextView::new("").with_name(TUI_LIST_HEADER_ID);
-
-        // Align everything vertically...
-        let list_layout = LinearLayout::vertical()
-            .child(list_view_header)
-            .child(list_view_scroll);
-
-        // And wrap it in a horizontal scroll...
-        let list_layout_scroll = ScrollView::new(list_layout).scroll_y(false).scroll_x(true);
-
-        // Finally the status header which just displays program status
-        let status_header = TextView::new("Loading...")
-            .center()
-            .with_name(TUI_STATUS_HEADER_ID);
-
-        self.cursive.clear();
-
-        let mut layout = LinearLayout::vertical()
-            .child(status_header)
-            .child(list_layout_scroll);
-
-        layout.focus_view(&Selector::Name(TUI_LIST_ID)).unwrap();
-
-        self.cursive.add_fullscreen_layer(layout.full_width());
-    }
-
-    /// Called when enter is pressed on a the entry/catagory list view.
-    fn list_view_on_submit(cursive: &mut Cursive, index: usize) {
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
-
-        // Only do something if in catagory view
-        if cache.catagory_selected.len() == 0 {
-            let catagory_name = cache.catagories_queried[index].clone();
-
-            Self::populate_with_entries(cursive, &catagory_name);
-        }
+    /// Bindings for all dialog views
+    fn prime_dialog(_: &mut OnEventView<Dialog>) {
+        // Currently there are no universal dialog bindings
     }
 
     /// Populate the list view with catagories.
-    fn populate_with_catagories(cursive: &mut Cursive) {
-        // Grab all the views needed
-        let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
-        let mut list_view_header: ViewRef<TextView> =
-            cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
-        let mut status_header: ViewRef<TextView> = cursive.find_name(TUI_STATUS_HEADER_ID).unwrap();
-
-        list_view.clear();
-
+    fn catagory_view(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        cursive.clear();
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Set the status to inform the user that they're in catagory view
-        status_header.set_content("CATAGORY VIEW");
+        let catagories = cache.db.list_catagories()?;
 
-        let catagories = match cache.db.list_catagories() {
-            Ok(catagories) => catagories,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
-
-        let catagory_table = match cache.db.stat_catagories() {
-            Ok(catagory_table) => catagory_table,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
+        let catagory_table = cache.db.stat_catagories()?;
 
         let headers = vec!["NAME".to_string(), "ENTRIES".to_string()];
 
         let columnated_catagories = Self::columnator(headers, catagory_table);
 
-        // Set the header to the first row
-        list_view_header.set_content(&columnated_catagories[0]);
-
-        for (i, name) in columnated_catagories[1..].iter().enumerate() {
-            list_view.add_item(name, i);
-        }
-
-        cache.catagories_queried = catagories;
-        cache.catagory_selected = String::new();
-
         // Ensure there are no remaining constraints as this can cause errors...
         cache.constraints.clear();
+
+        let status_header = TextView::new("CATAGORY VIEW").center().full_width();
+        let list_view_header = TextView::new(&columnated_catagories[0]).full_width();
+        let list_view = SelectView::new()
+            .with_all(
+                catagories
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(i, catagory)| (columnated_catagories[i + 1].clone(), catagory)),
+            )
+            .on_submit(|cursive, catagory: &str| {
+                let cache = cursive.user_data::<TuiCache>().unwrap();
+
+                cache.selected_catagory = catagory.to_string();
+                cache.selected_key = 0;
+                Self::push_layer(cursive, Self::entry_view)
+            })
+            .with_name(TUI_LIST_ID)
+            .full_width();
+
+        let mut list_view_scroll = ScrollView::new(list_view).show_scrollbars(false);
+        list_view_scroll.scroll_to_important_area();
+
+        let list_layout = LinearLayout::vertical()
+            .child(list_view_header)
+            .child(list_view_scroll);
+
+        let list_layout_scroll = ScrollView::new(list_layout).scroll_x(true).scroll_y(false);
+
+        let layout = LinearLayout::vertical()
+            .child(status_header)
+            .child(list_layout_scroll);
+
+        // Make keys bindable to this view
+        let mut layout = OnEventView::new(layout);
+
+        Self::prime_catagory_view(&mut layout);
+
+        let layout = layout.with_name(TUI_VIEW_ID);
+        // Clear all and add the layout to cursive
+        cursive.pop_layer();
+
+        Ok(LayerType::View(layout))
     }
 
     /// Populate the list view with entries and select an entry based off the
     /// given key
-    fn populate_with_entries_and_select(cursive: &mut Cursive, catagory_name: &str, key: u64) {
-        // Grab all the views needed
-        let mut list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
-        let mut list_view_header: ViewRef<TextView> =
-            cursive.find_name(TUI_LIST_HEADER_ID).unwrap();
-        let mut status_header: ViewRef<TextView> = cursive.find_name(TUI_STATUS_HEADER_ID).unwrap();
-        let mut list_view_scroll: ViewRef<ScrollView<NamedView<SelectView<usize>>>> =
-            cursive.find_name(TUI_LIST_SCROLL_ID).unwrap();
-
-        list_view.clear();
-
+    fn entry_view(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Set the status to inform the user that they're in entry view
-        let mut status_string = format!("ENTRY VIEW (CATAGORY={})\n", catagory_name);
-        // Add the constraints to the status message
-        for (i, constraint) in cache.constraints.iter().enumerate() {
-            if i > 0 {
-                status_string.push_str(", ");
-            }
-            status_string.push_str(&constraint.to_string());
-        }
+        let catagory_name = cache.selected_catagory.clone();
+        let key = cache.selected_key;
 
-        status_header.set_content(&status_string);
-
-        let entries = match cache.db.search_catagory(&catagory_name, &cache.constraints) {
-            Ok(entries) => entries,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
+        let entries = cache
+            .db
+            .search_catagory(&catagory_name, &cache.constraints)?;
 
         // Grab the catagory's field headers
-        let headers = match cache.db.grab_catagory_fields(&catagory_name) {
-            Ok(headers) => headers,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
+        let headers = cache.db.grab_catagory_fields(&catagory_name)?;
 
         // Convert the entries into a table
         let mut entry_table = Vec::<Vec<String>>::with_capacity(entries.len());
 
-        cache.entry_selected = 0;
+        let mut entry_selected: usize = 0;
 
         for (i, entry) in entries.iter().enumerate() {
             let created_str = Local.timestamp_opt(entry.created, 0).unwrap().to_string();
@@ -372,7 +399,7 @@ impl Tui {
 
             // If the key is equal to the one specified, select it
             if entry.key == key {
-                cache.entry_selected = i;
+                entry_selected = i;
             }
 
             let mut entry_row = Vec::<String>::with_capacity(headers.len());
@@ -396,59 +423,52 @@ impl Tui {
         // Columnate the entries
         let columnated_entries = Self::columnator(headers, entry_table);
 
-        list_view_header.set_content(&columnated_entries[0]);
-
-        for (i, entry) in columnated_entries[1..].iter().enumerate() {
-            list_view.add_item(entry, i);
+        // Set the status to inform the user that they're in entry view
+        let mut status_string = format!("ENTRY VIEW (CATAGORY={})\n", catagory_name);
+        // Add the constraints to the status message
+        for (i, constraint) in cache.constraints.iter().enumerate() {
+            if i > 0 {
+                status_string.push_str(", ");
+            }
+            status_string.push_str(&constraint.to_string());
         }
 
-        // Focus on the selected entry
-        list_view.set_selection(cache.entry_selected); // Ignore the callback
-        drop(list_view); // Will not scroll unless the list view is dropped
+        let status_header = TextView::new(status_string).center().full_width();
+        let list_view_header = TextView::new(&columnated_entries[0]).full_width();
+        let list_view = SelectView::new()
+            .with_all(
+                entries
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(i, entry)| (columnated_entries[i + 1].clone(), entry)),
+            )
+            .selected(entry_selected)
+            .with_name(TUI_LIST_ID)
+            .full_width();
+
+        let mut list_view_scroll = ScrollView::new(list_view).show_scrollbars(false);
         list_view_scroll.scroll_to_important_area();
 
-        cache.catagory_selected = catagory_name.to_string();
-        cache.entries_queried = entries;
-    }
+        let list_layout = LinearLayout::vertical()
+            .child(list_view_header)
+            .child(list_view_scroll);
 
-    /// Populate the list view with entries.
-    fn populate_with_entries(cursive: &mut Cursive, catagory_name: &str) {
-        Self::populate_with_entries_and_select(cursive, catagory_name, 0);
-    }
+        let list_layout_scroll = ScrollView::new(list_layout).scroll_x(true).scroll_y(false);
 
-    /// Function called when escape is pressed.
-    fn escape(cursive: &mut Cursive) {
-        // Grab the cache
-        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+        let layout = LinearLayout::vertical()
+            .child(status_header)
+            .child(list_layout_scroll);
 
-        // If in a dialog, simply pop the dialog...
-        if cache.dialog_layers > 0 {
-            cache.dialog_layers -= 1;
-            cursive.pop_layer();
-            return;
-        }
+        // Make keys bindable to this view
+        let mut layout = OnEventView::new(layout);
+        Self::prime_entry_view(&mut layout);
+        let layout = layout.with_name(TUI_VIEW_ID);
 
-        // If the list view is currently populated with entries, go back and populate with columns
-        // instead...
-        if cache.catagory_selected.len() != 0 {
-            Self::populate_with_catagories(cursive);
-            return;
-        }
-
-        // Otherwise, exit the program
-        Self::exit_dialog(cursive);
+        Ok(LayerType::View(layout))
     }
 
     /// Dialog used to find an entry given only a key
-    fn find_dialog(cursive: &mut Cursive) {
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
-
-        // If we're already in a dialog, do nothing
-        if cache.dialog_layers > 0 {
-            return;
-        }
-
+    fn find_dialog(_: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let find_view = TextView::new("Key: ");
         let find_edit = EditView::new()
             .on_submit(|cursive, _| Self::find_dialog_submit(cursive))
@@ -461,8 +481,11 @@ impl Tui {
             .button("Find", |cursive| Self::find_dialog_submit(cursive))
             .title("Find Entry");
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Function called when the find button is selected in the find dialog
@@ -492,33 +515,18 @@ impl Tui {
             }
         };
 
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
-        Self::populate_with_entries_and_select(cursive, &catagory_name, key);
-    }
+        drop(cache);
+        Self::base_layer(cursive);
 
-    /// Dialog used to add either an entry or a catagory depending on the view.
-    fn add_dialog(cursive: &mut Cursive) {
-        // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
+        cache.selected_key = key;
+        cache.selected_catagory = catagory_name;
 
-        if cache.dialog_layers > 0 {
-            return;
-        }
-
-        // See whether we're in catagory or entry view, and choose the correct dialog accordingly
-        if cache.catagory_selected.len() == 0 {
-            Self::add_catagory_dialog(cursive);
-        } else {
-            Self::add_entry_dialog(cursive);
-        }
+        Self::push_layer(cursive, Self::entry_view);
     }
 
     /// Dialog used to add a catagory.
-    fn add_catagory_dialog(cursive: &mut Cursive) {
-        // Grab the cache
-        let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
+    fn add_catagory_dialog(_: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let name_view = TextView::new("Name: ");
         let name_edit = EditView::new()
             .with_name(TUI_CATAGORY_NAME_ID)
@@ -527,7 +535,7 @@ impl Tui {
         let name_row = LinearLayout::horizontal().child(name_view).child(name_edit);
 
         let add_field_button = Button::new("Add Field", |cursive| {
-            Self::add_catagory_field_dialog(cursive)
+            Self::push_layer(cursive, Self::add_catagory_field_dialog)
         });
 
         let field_list = SelectView::<CatagoryField>::new().with_name(TUI_FIELD_LIST_ID);
@@ -543,8 +551,11 @@ impl Tui {
                 Self::add_catagory_dialog_submit(cursive)
             });
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Function called when the submit button is pressed in the add catagory
@@ -580,17 +591,11 @@ impl Tui {
             }
         };
 
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
-
-        Self::populate_with_catagories(cursive);
+        Self::pop_layer(cursive);
     }
 
     /// Dialog used to add a field to a catagory.
-    fn add_catagory_field_dialog(cursive: &mut Cursive) {
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
-
+    fn add_catagory_field_dialog(_: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let name_view = TextView::new("Name: ");
         let name_edit = EditView::new()
             .with_name(TUI_FIELD_NAME_ID)
@@ -613,8 +618,11 @@ impl Tui {
             Self::add_catagory_field_submit(cursive)
         });
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Function called when the submit button is pressed in the add catagory
@@ -627,9 +635,6 @@ impl Tui {
             cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
         let field_name_view: ViewRef<EditView> = cursive.find_name(TUI_FIELD_NAME_ID).unwrap();
 
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
-
         let field = CatagoryField::new(
             &field_name_view.get_content().to_uppercase(),
             *type_menu_view.selection().unwrap(),
@@ -637,32 +642,22 @@ impl Tui {
 
         field_list_view.add_item(field.to_string(), field);
 
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
+        Self::pop_layer(cursive);
     }
 
     /// Dialog used to add an entry to the database.
-    fn add_entry_dialog(cursive: &mut Cursive) {
+    fn add_entry_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         // Grab the cache
-        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         let mut layout = LinearLayout::vertical();
 
-        let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
-            Ok(fields) => fields,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
+        let fields = cache.db.grab_catagory_fields(&cache.selected_catagory)?;
 
         // Remove created and modified because they are autogenerated
         let fields_a: Vec<String> = fields[..3].into();
         let fields_b: Vec<String> = fields[5..].into();
         let fields = [fields_a, fields_b].concat();
-
-        // Subtract 2 because the created and modified date fields are autogenerated
-        cache.fields_edited = vec![String::new(); fields.len()];
 
         // First find the largest field name
         let mut max_size: usize = 0;
@@ -672,10 +667,16 @@ impl Tui {
         }
 
         for (i, field) in fields.iter().enumerate() {
-            let field = format!("{}:", field);
-            let field_id = TextView::new(format!("{:<width$}", field, width = max_size + 2));
+            let field_id = format!("{}:", field);
+            let field_id = TextView::new(format!("{:<width$}", field_id, width = max_size + 2));
+
             let field_entry = EditView::new()
-                .on_edit(move |cursive, string, _| Self::edit_field(cursive, string, i))
+                .on_edit(move |cursive, _, _| {
+                    let cache = cursive.user_data::<TuiCache>().unwrap();
+
+                    cache.edited_ids.push(i);
+                })
+                .with_name(format!("{}{}", TUI_MOD_FIELD_EDIT, i))
                 .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
             let row = LinearLayout::horizontal()
@@ -685,21 +686,17 @@ impl Tui {
             layout.add_child(row);
         }
 
+        cache.edited_ids.clear();
+
         let dialog = Dialog::around(layout)
-            .title(format!("Add entry to {}...", cache.catagory_selected))
+            .title(format!("Add entry to {}...", cache.selected_catagory))
             .button("Add", |cursive| Self::add_entry_submit(cursive));
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
-    }
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
 
-    /// Function called when a field is edited(will most likely be removed in
-    /// future updates)
-    fn edit_field(cursive: &mut Cursive, string: &str, number: usize) {
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
-
-        cache.fields_edited[number] = string.to_string();
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Function called when the submit button is pressed in the add entry
@@ -708,53 +705,97 @@ impl Tui {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Ignore the first 5 fields we won't need them
-        let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
-            Ok(fields) => fields,
+        let edited_ids = cache.edited_ids.clone();
+
+        let field_ids = match cache.db.grab_catagory_fields(&cache.selected_catagory) {
+            Ok(ids) => ids,
             Err(error) => {
                 Self::error_dialog(cursive, error);
                 return;
             }
         };
 
-        let fields = &fields[5..]; // Ignore the first 5 fields
+        // Remove created and modified because they are autogenerated
+        let fields_a: Vec<String> = field_ids[..3].into();
+        let fields_b: Vec<String> = field_ids[5..].into();
+        let field_ids = [fields_a, fields_b].concat();
 
-        let key_str = &cache.fields_edited[0];
-        let key = match b64::to_u64(&key_str) {
+        let catagory = cache.selected_catagory.clone();
+
+        // Drop the cache so we can get the edit views we need...
+        drop(cache);
+
+        let mut fields: Vec<EntryField> = Vec::with_capacity(edited_ids.len());
+        for id in edited_ids {
+            let edit_view: ViewRef<EditView> = cursive
+                .find_name(&format!("{}{}", TUI_MOD_FIELD_EDIT, id))
+                .unwrap();
+
+            let field_id = &field_ids[id];
+            let field_value = edit_view.get_content();
+
+            let field = EntryField::new(field_id, &field_value);
+
+            fields.push(field);
+        }
+
+        // Create the entry from the aquired fields
+        // This is ugly
+        let key = match b64::to_u64(
+            &fields
+                .iter()
+                .find(|field| field.id == "KEY")
+                .unwrap_or(&EntryField::new("", ""))
+                .value,
+        ) {
             Ok(key) => key,
             Err(error) => {
                 Self::error_dialog(cursive, error);
                 return;
             }
         };
-        let location = &cache.fields_edited[1];
-        let quantity: u64 = match cache.fields_edited[2].parse() {
+
+        let location = fields
+            .iter()
+            .find(|field| field.id == "LOCATION")
+            .unwrap_or(&EntryField::new("", ""))
+            .value
+            .clone();
+
+        let quantity = match fields
+            .iter()
+            .find(|field| field.id == "QUANTITY")
+            .unwrap_or(&EntryField::new("", ""))
+            .value
+            .parse::<u64>()
+        {
             Ok(quantity) => quantity,
             Err(error) => {
                 Self::error_dialog(cursive, Box::new(error));
                 return;
             }
         };
+
         let created = Local::now().timestamp();
         let modified = created;
 
-        let mut entry = Entry::new(
-            &cache.catagory_selected,
-            key,
-            location,
-            quantity,
-            created,
-            modified,
+        let mut entry = Entry::new(&catagory, key, &location, quantity, created, modified);
+
+        // Prime jank
+        entry.add_fields(
+            &fields
+                .into_iter()
+                .filter(|field| {
+                    field.id != "KEY" && field.id != "LOCATION" && field.id != "QUANTITY"
+                })
+                .collect::<Vec<EntryField>>(),
         );
 
-        for (i, value) in cache.fields_edited[3..].iter().enumerate() {
-            if value.len() > 0 {
-                entry.add_field(EntryField::new(&fields[i], &value));
-            }
-        }
+        // Get the cache again
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        eprintln!("{}", entry.to_string());
-
+        // Set the selected key
+        cache.selected_key = entry.key;
         match cache.db.add_entry(entry) {
             Ok(_) => {}
             Err(error) => {
@@ -763,33 +804,27 @@ impl Tui {
             }
         }
 
-        let catagory = cache.catagory_selected.clone();
-
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
-
-        Self::populate_with_entries_and_select(cursive, &catagory, key);
+        Self::pop_layer(cursive);
     }
 
     /// Dialog used to modify entries
-    fn mod_entry_dialog(cursive: &mut Cursive) {
-        let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
+    fn mod_entry_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
         // Grab the cache
         let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Return if already in a dialog or if not in entry mode
-        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
-            return;
-        }
+        // Get the entry to give or take from
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                bail!("No entry to operate on!");
+            }
+        };
 
-        // Get the entry to modify
-        let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
-        let entry = &cache.entries_queried[entry_pos];
-
+        // Set the selected key
+        cache.selected_key = entry.key;
         // Build fields based on what the entry has
         let key = EntryField::new("KEY", &b64::from_u64(entry.key));
-        // Add quotes to be removed later
-        // !TODO! make this less hacky
         let location = EntryField::new("LOCATION", &format!("{}", entry.location));
         let quantity = EntryField::new("QUANTITY", &entry.quantity.to_string());
         let mut fields: Vec<EntryField> = vec![key, location, quantity];
@@ -833,30 +868,34 @@ impl Tui {
         let dialog = Dialog::around(layout)
             .button("Modify!", |cursive| Self::mod_entry_dialog_submit(cursive));
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Called when the modify button is selected
     fn mod_entry_dialog_submit(cursive: &mut Cursive) {
-        let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Get the entry to modify
-        let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
-        let entry = cache.entries_queried[entry_pos].clone();
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                return;
+            }
+        };
 
         let edited_ids = cache.edited_ids.clone();
 
         // Get all of the field ids(minus creation and mod time)
         let mut field_ids: Vec<String> = vec!["KEY".into(), "LOCATION".into(), "QUANTITY".into()];
 
-        for field in entry.fields {
+        for field in &entry.fields {
             field_ids.push(field.id.clone());
         }
-
-        let catagory = cache.catagory_selected.clone();
 
         // Drop the cache so we can get the edit views we need...
         drop(cache);
@@ -876,7 +915,7 @@ impl Tui {
         }
 
         // Get the cache again
-        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         match cache.db.mod_entry(entry.key, fields) {
             Ok(types) => types,
@@ -886,33 +925,14 @@ impl Tui {
             }
         };
 
-        let key = entry.key;
-
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
-
-        // Drop all views
-        drop(list_view);
-
-        Self::populate_with_entries_and_select(cursive, &catagory, key);
+        Self::pop_layer(cursive);
     }
 
     /// Dialog used to add filter constraints
-    fn filter_dialog(cursive: &mut Cursive) {
+    fn filter_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Return if already in a dialog or if not in entry mode
-        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
-            return;
-        }
-
-        let fields = match cache.db.grab_catagory_fields(&cache.catagory_selected) {
-            Ok(fields) => fields,
-            Err(error) => {
-                Self::fatal_error_dialog(cursive, error);
-                return;
-            }
-        };
+        let fields = cache.db.grab_catagory_fields(&cache.selected_catagory)?;
 
         // Remove created and modified because they are autogenerated
         let fields_a: Vec<String> = fields[..3].into();
@@ -958,8 +978,11 @@ impl Tui {
         let dialog =
             Dialog::around(layout).button("Filter!", |cursive| Self::filter_dialog_submit(cursive));
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Called when the "Filter!" button is selected
@@ -983,24 +1006,17 @@ impl Tui {
 
         cache.constraints.push(constraint);
 
-        cache.dialog_layers -= 1;
-        let catagory = cache.catagory_selected.clone();
-        cursive.pop_layer();
-
-        Self::populate_with_entries(cursive, &catagory);
+        Self::pop_layer(cursive);
     }
 
     /// Remove last applied constraint
-    fn pop_constraint(cursive: &mut Cursive) {
+    fn pop_constraint(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Return if already in a dialog, no constraints are found, or if not in entry mode
-        if cache.dialog_layers > 0
-            || cache.constraints.len() == 0
-            || cache.catagory_selected.len() == 0
-        {
-            return;
+        // Return if no constraints are found
+        if cache.constraints.len() == 0 {
+            bail!("No constraints to remove!");
         }
 
         // Ask the user if they want to remove the constraint
@@ -1012,40 +1028,30 @@ impl Tui {
             "Remove constraint {}?",
             cache.constraints.last().unwrap()
         ))
-        .button("No...", |cursive| {
-            // Grab the cache
-            let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
-            cache.dialog_layers -= 1;
-            cursive.pop_layer();
-        })
+        .button("No...", |cursive| Self::pop_layer(cursive))
         .button("Yes!", move |cursive| {
             let cache = cursive.user_data::<TuiCache>().unwrap();
 
             cache.constraints.pop();
 
-            cache.dialog_layers -= 1;
-            let catagory = cache.catagory_selected.clone();
-            cursive.pop_layer();
-
-            Self::populate_with_entries(cursive, &catagory);
+            Self::pop_layer(cursive);
         });
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Remove all constraints
-    fn clear_constraints(cursive: &mut Cursive) {
+    fn clear_constraints(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Return if already in a dialog, no constraints are found, or if not in entry mode
-        if cache.dialog_layers > 0
-            || cache.constraints.len() == 0
-            || cache.catagory_selected.len() == 0
-        {
-            return;
+        // Return if no constraints are found
+        if cache.constraints.len() == 0 {
+            bail!("No constraints to remove!");
         }
 
         // Ask the user if they want to remove the constraint
@@ -1055,43 +1061,51 @@ impl Tui {
         // unwrap here...
         let dialog = Dialog::text("Remove all constraints?")
             .button("No...", |cursive| {
-                // Grab the cache
-                let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
-                cache.dialog_layers -= 1;
-                cursive.pop_layer();
+                Self::pop_layer(cursive);
             })
             .button("Yes!", move |cursive| {
                 let cache = cursive.user_data::<TuiCache>().unwrap();
 
                 cache.constraints.clear();
 
-                cache.dialog_layers -= 1;
-                let catagory = cache.catagory_selected.clone();
-                cursive.pop_layer();
-
-                Self::populate_with_entries(cursive, &catagory);
+                Self::pop_layer(cursive);
             });
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
+
+    /// Dialog used to give to an entry
+    fn give_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        Self::give_take_dialog(cursive, true)
+    }
+
+    /// Dialog used to take from an entry
+    fn take_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        Self::give_take_dialog(cursive, false)
+    }
+
     /// Dialog used when either giving or taking from an entry. If give is
     /// true, we are giving to an entry. If false, we are taking from an entry.
-    fn give_take_dialog(cursive: &mut Cursive, give: bool) {
-        let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
+    fn give_take_dialog(cursive: &mut Cursive, give: bool) -> Result<LayerType, Box<dyn Error>> {
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
         // Grab the cache
-        let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
-        // Return if already in a dialog or if not in entry mode
-        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
-            return;
-        }
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
         // Get the entry to give or take from
-        let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
-        let entry = &cache.entries_queried[entry_pos];
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                bail!("No entry to operate on!");
+            }
+        };
+
+        // Set the selected key
+        cache.selected_key = entry.key;
 
         // Get the quantity
         let quantity = entry.quantity;
@@ -1106,8 +1120,6 @@ impl Tui {
             false => "from",
         };
 
-        cache.fields_edited = vec!["1".to_string()];
-
         let old_quantity_view = TextView::new(format!("Old Quantity: {}", quantity));
 
         // Create the entry row
@@ -1116,9 +1128,9 @@ impl Tui {
         let give_take_edit = EditView::new()
             .content("1")
             .on_edit(move |cursive, string, _| {
-                Self::edit_field(cursive, string, 0);
-                Self::give_take_dialog_update(cursive, give);
+                Self::give_take_dialog_update(cursive, string, give);
             })
+            .with_name(TUI_MOD_FIELD_EDIT)
             .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
         let entry_row = LinearLayout::horizontal()
@@ -1151,28 +1163,33 @@ impl Tui {
                 Self::give_take_dialog_submit(cursive, give)
             });
 
-        cache.entry_selected = entry_pos;
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Update the dialog to reflect the new quantity
-    fn give_take_dialog_update(cursive: &mut Cursive, give: bool) {
+    fn give_take_dialog_update(cursive: &mut Cursive, give_take_amt: &str, give: bool) {
         let mut new_quantity_view: ViewRef<TextView> =
             cursive.find_name(TUI_NEW_QUANTITY_ID).unwrap();
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
-        // Grab the cache
-        let cache = cursive.user_data::<TuiCache>().unwrap();
-
-        let give_take_amt: u64 = match cache.fields_edited[0].parse() {
+        let give_take_amt: u64 = match give_take_amt.parse() {
             Ok(number) => number,
             Err(_) => {
                 return;
             }
         };
 
-        let entry_pos = cache.entry_selected;
-        let entry = &cache.entries_queried[entry_pos];
+        // Get the entry to give or take from
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                return;
+            }
+        };
 
         let quantity: u64 = match give {
             true => entry.quantity + give_take_amt,
@@ -1192,18 +1209,26 @@ impl Tui {
     /// Function called when the submit button on the give or take dialog is
     /// pressed.
     fn give_take_dialog_submit(cursive: &mut Cursive, give: bool) {
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
+        let new_quantity_edit: ViewRef<EditView> = cursive.find_name(TUI_MOD_FIELD_EDIT).unwrap();
         // Grab the cache
-        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+        let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        let give_take_amt: u64 = match cache.fields_edited[0].parse() {
+        let give_take_amt: u64 = match new_quantity_edit.get_content().parse() {
             Ok(number) => number,
-            Err(_) => {
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
                 return;
             }
         };
 
-        let entry_pos = cache.entry_selected;
-        let entry = &cache.entries_queried[entry_pos];
+        // Get the entry to give or take from
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                return;
+            }
+        };
 
         let quantity: u64 = match give {
             true => entry.quantity + give_take_amt,
@@ -1228,46 +1253,40 @@ impl Tui {
             }
         }
 
-        let catagory = cache.catagory_selected.clone();
-
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
-
-        Self::populate_with_entries(cursive, &catagory);
+        Self::pop_layer(cursive);
     }
 
     /// Dialog that confirms if you wish to delete an entry, and if so, deletes
     /// the entry.
-    fn delete_dialog(cursive: &mut Cursive) {
-        let list_view: ViewRef<SelectView<usize>> = cursive.find_name(TUI_LIST_ID).unwrap();
+    fn delete_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Return if already in a dialog or if not in entry mode
-        if cache.dialog_layers > 0 || cache.catagory_selected.len() == 0 {
-            return;
-        }
-
         // Get the entry to give or take from
-        let entry_pos: usize = list_view.selection().unwrap().as_ref().clone();
-        let entry_key = cache.entries_queried[entry_pos].key;
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                bail!("No entry to operate on!");
+            }
+        };
+
+        // Set the selected key
+        cache.selected_key = entry.key;
 
         // Create the dialog
-        let dialog = Dialog::text(format!("Delete entry {}?", b64::from_u64(entry_key)))
-            .button("No...", |cursive| {
-                // Grab the cache
-                let mut cache = cursive.user_data::<TuiCache>().unwrap();
-
-                cache.dialog_layers -= 1;
-                cursive.pop_layer();
-            })
+        let dialog = Dialog::text(format!("Delete entry {}?", b64::from_u64(entry.key)))
+            .button("No...", |cursive| Self::pop_layer(cursive))
             .button("Yes!", move |cursive| {
-                Self::delete_dialog_submit(cursive, entry_key);
+                Self::delete_dialog_submit(cursive, entry.key);
             });
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Deletes the entry if "Yes" is selected on the delete dialog.
@@ -1283,27 +1302,20 @@ impl Tui {
             }
         }
 
-        let catagory = cache.catagory_selected.clone();
-
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
-
-        Self::populate_with_entries(cursive, &catagory);
+        Self::pop_layer(cursive);
     }
 
     /// Dialog used to confirm that a used wishes to exit the program.
-    fn exit_dialog(cursive: &mut Cursive) {
+    fn exit_dialog(_: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let exit_dialog = Dialog::text("Are You Sure You Want To Exit?")
-            .button("No...", |cursive| {
-                cursive.pop_layer().unwrap();
-            })
+            .button("No...", |cursive| Self::pop_layer(cursive))
             .button("Yes!", |cursive| cursive.quit());
 
-        cursive.add_layer(exit_dialog);
+        Ok(LayerType::Dialog(OnEventView::new(exit_dialog)))
     }
 
     /// Dialog used to select a label template file to fill out
-    fn fill_template_dialog(cursive: &mut Cursive) {
+    fn fill_template_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
@@ -1319,22 +1331,10 @@ impl Tui {
             template_list.add_item(template_id.clone(), TemplateType::BuiltIn(template_id));
         }
         // List the template files
-        let template_paths = match fs::read_dir(cache.template_dir.as_path()) {
-            Ok(template_paths) => template_paths,
-            Err(error) => {
-                Self::error_dialog(cursive, Box::new(error));
-                return;
-            }
-        };
+        let template_paths = fs::read_dir(cache.template_dir.as_path())?;
 
         for entry in template_paths {
-            let path = match entry {
-                Ok(entry) => entry.path(),
-                Err(error) => {
-                    Self::error_dialog(cursive, Box::new(error));
-                    return;
-                }
-            };
+            let path = entry?.path();
 
             if !path.is_dir() {
                 let template_name = path.file_name().unwrap().to_str().unwrap().to_string();
@@ -1367,8 +1367,11 @@ impl Tui {
                 Self::fill_template_dialog_submit(cursive)
             });
 
-        cache.dialog_layers += 1;
-        cursive.add_layer(dialog);
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
     }
 
     /// Fills the template if the "Fill!" button is selected
@@ -1444,8 +1447,7 @@ impl Tui {
             }
         };
 
-        cache.dialog_layers -= 1;
-        cursive.pop_layer();
+        Self::pop_layer(cursive);
     }
 
     /// Converts a table into strings that mimic an excel table, or something
@@ -1526,25 +1528,16 @@ impl Tui {
 
 /// Data cache during the TUI session
 struct TuiCache {
-    /// The currently selected catagory. If empty, we are in catagory view.
-    pub catagory_selected: String,
     /// The directory for templates
     pub template_dir: PathBuf,
-    /// The catagories queried. This is to prevent issues incase the database
-    /// is altered outside of pinv while the program is running.
-    pub catagories_queried: Vec<String>,
-    /// The entries queried. This is to prevent issues incase the database is
-    /// altered outside of pinv while the program is running.
-    pub entries_queried: Vec<Entry>,
-    /// Index of the selected entry
-    pub entry_selected: usize,
-    /// Number of dialog windows opened
-    pub dialog_layers: usize,
     /// Database in use
     pub db: Db,
-    /// May be removed in future update, used to hold the value of dialog
-    /// fields.
-    pub fields_edited: Vec<String>,
+    /// IDs of the fields edited, to replace fields_edited
     pub edited_ids: Vec<usize>,
+    /// Constraints that affect what is displated in entry view
     pub constraints: Vec<Condition>,
+    /// Binding to call when popping out of a dialog
+    pub escape_action: Vec<fn(&mut Cursive) -> Result<LayerType, Box<dyn Error>>>,
+    pub selected_catagory: String,
+    pub selected_key: u64,
 }
