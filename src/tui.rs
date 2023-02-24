@@ -311,6 +311,26 @@ impl Tui {
         // Currently there are no universal dialog bindings
     }
 
+    /// Bindings for the add catagory dialog
+    fn prime_add_catagory_dialog(dialog: &mut OnEventView<Dialog>) {
+        Self::prime_dialog(dialog);
+
+        dialog.set_on_event(Event::Key(Key::Del), |cursive| {
+            // Grab the field list
+            let mut field_list_view: ViewRef<SelectView<CatagoryField>> =
+                cursive.find_name(TUI_FIELD_LIST_ID).unwrap();
+
+            let id = match field_list_view.selected_id() {
+                Some(id) => id,
+                None => {
+                    return;
+                }
+            };
+
+            field_list_view.remove_item(id);
+        })
+    }
+
     /// Populate the list view with catagories.
     fn catagory_view(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         cursive.clear();
@@ -553,7 +573,7 @@ impl Tui {
 
         // Prime the default dialog bindings
         let mut dialog = OnEventView::new(dialog);
-        Self::prime_dialog(&mut dialog);
+        Self::prime_add_catagory_dialog(&mut dialog);
 
         Ok(LayerType::Dialog(dialog))
     }

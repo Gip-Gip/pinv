@@ -64,7 +64,8 @@ specify the name and the type of the field. The name is case insensitive, cannot
 and can only have alpha-numeric character in it, with some exceptions like underscores.
 The type of the field determins what kind of data can be stored in it, and you have
 the choice between "text" which is any string of text, "integer" which is any non-decimal
-number, and "real" which is any number including decimal numbers.
+number, and "real" which is any number including decimal numbers. You can also
+**press "Del" to delete a field you don't want**.
 
 Once you have added the fields you want, you can select the add button to add
 the catagory.
