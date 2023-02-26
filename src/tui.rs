@@ -251,6 +251,11 @@ impl Tui {
         view.set_on_event(Event::Char('p'), |cursive| {
             Self::push_layer(cursive, Self::fill_template_dialog)
         });
+        
+        // Bind Del to the delete catagory dialog
+        view.set_on_event(Event::Key(Key::Del), |cursive| {
+            Self::push_layer(cursive, Self::delete_catagory_dialog)
+        });
     }
 
     /// Bindings for catagory view
@@ -302,7 +307,7 @@ impl Tui {
 
         // Bind Del to the delete dialog
         view.set_on_event(Event::Key(Key::Del), |cursive| {
-            Self::push_layer(cursive, Self::delete_dialog)
+            Self::push_layer(cursive, Self::delete_entry_dialog)
         });
     }
 
@@ -1278,7 +1283,7 @@ impl Tui {
 
     /// Dialog that confirms if you wish to delete an entry, and if so, deletes
     /// the entry.
-    fn delete_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+    fn delete_entry_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
 
         // Grab the cache
@@ -1299,7 +1304,7 @@ impl Tui {
         let dialog = Dialog::text(format!("Delete entry {}?", b64::from_u64(entry.key)))
             .button("No...", |cursive| Self::pop_layer(cursive))
             .button("Yes!", move |cursive| {
-                Self::delete_dialog_submit(cursive, entry.key);
+                Self::delete_entry_dialog_submit(cursive, entry.key);
             });
 
         // Prime the default dialog bindings
@@ -1310,11 +1315,54 @@ impl Tui {
     }
 
     /// Deletes the entry if "Yes" is selected on the delete dialog.
-    fn delete_dialog_submit(cursive: &mut Cursive, key: u64) {
+    fn delete_entry_dialog_submit(cursive: &mut Cursive, key: u64) {
         // Grab the cache
         let cache = cursive.user_data::<TuiCache>().unwrap();
 
         match cache.db.delete_entry(key) {
+            Ok(_) => {}
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        }
+
+        Self::pop_layer(cursive);
+    }
+
+    /// Dialog that confirms if you wish to delete a catagory, and if so, deletes
+    /// the catagory.
+    fn delete_catagory_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        let list_view: ViewRef<SelectView> = cursive.find_name(TUI_LIST_ID).unwrap();
+
+        // Get the entry to give or take from
+        let catagory = match list_view.selection() {
+            Some(catagory) => catagory,
+            None => {
+                bail!("No catagory to operate on!");
+            }
+        };
+
+        // Create the dialog
+        let dialog = Dialog::text(format!("Delete catagory {}?", catagory))
+            .button("No...", |cursive| Self::pop_layer(cursive))
+            .button("Yes!", move |cursive| {
+                Self::delete_catagory_dialog_submit(cursive, &catagory);
+            });
+
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
+    }
+    
+    /// Deletes the entry if "Yes" is selected on the delete dialog.
+    fn delete_catagory_dialog_submit(cursive: &mut Cursive, name: &str) {
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        match cache.db.delete_empty_catagory(name) {
             Ok(_) => {}
             Err(error) => {
                 Self::error_dialog(cursive, error);

@@ -836,6 +836,22 @@ impl Db {
         Ok(catagory_table)
     }
 
+    /// Delete an empty catagory
+    pub fn delete_empty_catagory(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
+        // First check to see if the catagory is empty
+        let entries = self.search_catagory(name, &Vec::new())?;
+
+        if entries.len() != 0 {
+            bail!("Catagory \"{}\" is not empty!", name);
+        }
+
+        let query = format!("DROP TABLE {}", name);
+
+        self.connection.execute(&query, [])?;
+
+        Ok(())
+    }
+
     /// Delete an entry given only the key
     pub fn delete_entry(&mut self, key: u64) -> Result<(), Box<dyn Error>> {
         // First, get the catagory the entry is in
@@ -1810,5 +1826,31 @@ pub mod tests {
         Db::check_value_string(bad_number_2, DataType::INTEGER).unwrap_err();
         Db::check_value_string(bad_number_2, DataType::REAL).unwrap_err();
         Db::check_value_string(bad_number_3, DataType::INTEGER).unwrap_err();
+    }
+
+    #[test]
+    fn test_db_delete_empty_catagory() {
+        let mut db = Db::_new_test();
+
+        let catagory_a = test_catagory_a();
+        let catagory_b = test_catagory_b();
+        let entry_1 = test_entry_2();
+
+        db.add_catagory(catagory_a.clone()).unwrap();
+        db.add_catagory(catagory_b.clone()).unwrap();
+        db.add_entry(entry_1).unwrap();
+
+        // Should pass
+        let catagories = db.list_catagories().unwrap();
+        assert_eq!(catagories.len(), 2);
+        
+        db.delete_empty_catagory(&catagory_a.id).unwrap();
+
+        // Should fail
+        db.delete_empty_catagory(&catagory_b.id).unwrap_err();
+
+        // Should pass
+        let catagories = db.list_catagories().unwrap();
+        assert_eq!(catagories.len(), 1);
     }
 }
