@@ -251,7 +251,7 @@ impl Tui {
         view.set_on_event(Event::Char('p'), |cursive| {
             Self::push_layer(cursive, Self::fill_template_dialog)
         });
-        
+
         // Bind Del to the delete catagory dialog
         view.set_on_event(Event::Key(Key::Del), |cursive| {
             Self::push_layer(cursive, Self::delete_catagory_dialog)
@@ -1356,7 +1356,7 @@ impl Tui {
 
         Ok(LayerType::Dialog(dialog))
     }
-    
+
     /// Deletes the entry if "Yes" is selected on the delete dialog.
     fn delete_catagory_dialog_submit(cursive: &mut Cursive, name: &str) {
         // Grab the cache

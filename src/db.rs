@@ -1843,7 +1843,7 @@ pub mod tests {
         // Should pass
         let catagories = db.list_catagories().unwrap();
         assert_eq!(catagories.len(), 2);
-        
+
         db.delete_empty_catagory(&catagory_a.id).unwrap();
 
         // Should fail

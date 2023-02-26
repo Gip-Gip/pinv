@@ -31,7 +31,8 @@ From there, you start in catagory view and have access to the catagory view mode
  - `p` - fill svg template mode
 
 Additionally, you can **exit the program by pressing "Esc" in Catagory View**,
-or enter **Entry View by selecting a catagory and pressing "Enter" or "Return"**
+**delete an empty catagory by pressing "Del"**, or enter **Entry View by
+selecting a catagory and pressing "Enter" or "Return"**
 
 In entry view, it will display what catagory you're in at the top of the screen
 along with all entries in a catagory(if there are none it will be empty).
