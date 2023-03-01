@@ -251,11 +251,6 @@ impl Tui {
         view.set_on_event(Event::Char('p'), |cursive| {
             Self::push_layer(cursive, Self::fill_template_dialog)
         });
-
-        // Bind Del to the delete catagory dialog
-        view.set_on_event(Event::Key(Key::Del), |cursive| {
-            Self::push_layer(cursive, Self::delete_catagory_dialog)
-        });
     }
 
     /// Bindings for catagory view
@@ -265,6 +260,11 @@ impl Tui {
         // Bind a to add_catagory mode
         view.set_on_event(Event::Char('a'), |cursive| {
             Self::push_layer(cursive, Self::add_catagory_dialog)
+        });
+
+        // Bind Del to the delete catagory dialog
+        view.set_on_event(Event::Key(Key::Del), |cursive| {
+            Self::push_layer(cursive, Self::delete_catagory_dialog)
         });
     }
 
