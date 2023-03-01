@@ -1,6 +1,9 @@
 # Personal Inventory(pinv)
 ### A simple TUI/CLI tool for organising parts, tools, and materials in shop or home
 
+[![crates.io](https://img.shields.io/crates/v/pinv.svg)](https://crates.io/crates/pinv)
+[![MIT licensed](https://img.shields.io/badge/license-GPL--3.0-green.svg)](./COPYING)
+
 As a fairly unorganized electronics hoarder myself,
 I have been long plagued with boxes of unused electronics and parts sitting around my room.
 Thing being, things can get kinda cluttered given enough time and I finally decided
