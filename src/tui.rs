@@ -289,6 +289,11 @@ impl Tui {
         view.set_on_event(Event::Char('m'), |cursive| {
             Self::push_layer(cursive, Self::mod_entry_dialog)
         });
+        
+        // Bind y to yank_entry mode
+        view.set_on_event(Event::Char('y'), |cursive| {
+            Self::push_layer(cursive, Self::yank_entry_dialog)
+        });
 
         // Bind f to filter mode
         view.set_on_event(Event::Char('F'), |cursive| {
@@ -953,6 +958,198 @@ impl Tui {
         Self::pop_layer(cursive);
     }
 
+    /// Dialog used to yank an entry
+    fn yank_entry_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
+        // Grab the cache
+        let mut cache = cursive.user_data::<TuiCache>().unwrap();
+
+        // Get the entry to give or take from
+        let entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                bail!("No entry to operate on!");
+            }
+        };
+
+        // Set the selected key
+        cache.selected_key = entry.key;
+        // Build fields based on what the entry has
+        // require only a new key be specified
+        let key = EntryField::new("KEY", "");
+        let location = EntryField::new("LOCATION", &format!("{}", entry.location));
+        let quantity = EntryField::new("QUANTITY", &entry.quantity.to_string());
+        let mut fields: Vec<EntryField> = vec![key, location, quantity];
+
+        fields.extend_from_slice(&entry.fields);
+
+        // Generate rows in the dialog to reflect the fields to be modified
+        let mut layout = LinearLayout::vertical();
+        // First find the largest field name(for padding reasons)
+        let mut max_size: usize = 0;
+
+        for field in &fields {
+            max_size = cmp::max(max_size, field.id.len())
+        }
+
+        for (i, field) in fields.iter().enumerate() {
+            let field_id = format!("{}:", field.id);
+            let field_id = TextView::new(format!("{:<width$}", field_id, width = max_size + 2));
+
+            let field_value = field.value.clone();
+
+            let field_entry = EditView::new()
+                .content(field_value)
+                .on_edit(move |cursive, _, _| {
+                    let cache = cursive.user_data::<TuiCache>().unwrap();
+
+                    cache.edited_ids.push(i);
+                })
+                .with_name(format!("{}{}", TUI_MOD_FIELD_EDIT, i))
+                .fixed_width(TUI_FIELD_ENTRY_WIDTH);
+
+            let row = LinearLayout::horizontal()
+                .child(field_id)
+                .child(field_entry);
+
+            layout.add_child(row);
+        }
+
+        cache.edited_ids.clear();
+
+        let dialog = Dialog::around(layout)
+            .button("Yank & Add!", |cursive| Self::yank_entry_dialog_submit(cursive));
+
+        // Prime the default dialog bindings
+        let mut dialog = OnEventView::new(dialog);
+        Self::prime_dialog(&mut dialog);
+
+        Ok(LayerType::Dialog(dialog))
+    }
+
+    /// Called when the "Yank & Add!" button is selected
+    fn yank_entry_dialog_submit(cursive: &mut Cursive) {
+        let list_view: ViewRef<SelectView<Entry>> = cursive.find_name(TUI_LIST_ID).unwrap();
+        // Grab the cache
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        let original_entry = match list_view.selection() {
+            Some(entry) => entry,
+            None => {
+                return;
+            }
+        };
+
+        let catagory = cache.selected_catagory.clone();
+
+        let edited_ids = cache.edited_ids.clone();
+
+        // Get all of the field ids(minus creation and mod time)
+        let mut field_ids: Vec<String> = vec!["KEY".into(), "LOCATION".into(), "QUANTITY".into()];
+
+        for field in &original_entry.fields {
+            field_ids.push(field.id.clone());
+        }
+
+        // Drop the cache so we can get the edit views we need...
+        drop(cache);
+
+        let mut fields: Vec<EntryField> = Vec::with_capacity(edited_ids.len());
+        for id in edited_ids {
+            let edit_view: ViewRef<EditView> = cursive
+                .find_name(&format!("{}{}", TUI_MOD_FIELD_EDIT, id))
+                .unwrap();
+
+            let field_id = &field_ids[id];
+            let field_value = edit_view.get_content();
+
+            let field = EntryField::new(field_id, &field_value);
+
+            fields.push(field);
+        }
+ 
+        // Create the entry from the aquired fields
+        // This is ugly
+        let key = match b64::to_u64(
+            &fields
+                .iter()
+                .find(|field| field.id == "KEY")
+                .unwrap_or(&EntryField::new("", ""))
+                .value,
+        ) {
+            Ok(key) => key,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        let location = fields
+            .iter()
+            .find(|field| field.id == "LOCATION")
+            .unwrap_or(&EntryField::new("", &original_entry.location))
+            .value
+            .clone();
+
+        let quantity = match fields
+            .iter()
+            .find(|field| field.id == "QUANTITY")
+            .unwrap_or(&EntryField::new("", &original_entry.quantity.to_string()))
+            .value
+            .parse::<u64>()
+        {
+            Ok(quantity) => quantity,
+            Err(error) => {
+                Self::error_dialog(cursive, Box::new(error));
+                return;
+            }
+        };
+
+        let created = Local::now().timestamp();
+        let modified = created;
+
+        let mut entry = Entry::new(&catagory, key, &location, quantity, created, modified);
+
+        let fields_copy = fields.clone();
+
+        // Prime jank
+        entry.add_fields(
+            &fields
+                .into_iter()
+                .filter(|field| {
+                    field.id != "KEY" && field.id != "LOCATION" && field.id != "QUANTITY"
+                })
+                .collect::<Vec<EntryField>>(),
+        );
+
+        // Add the original entry fields that weren't edited
+        entry.add_fields(
+            &original_entry.fields
+                .clone()
+                .into_iter()
+                .filter(move |field| {
+                    ! match fields_copy.iter().find(move |new_field| {&field == new_field}) {
+                        Some(_) => true,
+                        None => false,
+                    }
+                })
+                .collect::<Vec<EntryField>>(),
+        );
+
+        // Get the cache again
+        let cache = cursive.user_data::<TuiCache>().unwrap();
+
+        match cache.db.add_entry(entry) {
+            Ok(types) => types,
+            Err(error) => {
+                Self::error_dialog(cursive, error);
+                return;
+            }
+        };
+
+        Self::pop_layer(cursive);
+    }
+
     /// Dialog used to add filter constraints
     fn filter_dialog(cursive: &mut Cursive) -> Result<LayerType, Box<dyn Error>> {
         let cache = cursive.user_data::<TuiCache>().unwrap();
@@ -1600,7 +1797,7 @@ struct TuiCache {
     pub template_dir: PathBuf,
     /// Database in use
     pub db: Db,
-    /// IDs of the fields edited, to replace fields_edited
+    /// IDs of the fields edited
     pub edited_ids: Vec<usize>,
     /// Constraints that affect what is displated in entry view
     pub constraints: Vec<Condition>,

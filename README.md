@@ -2,7 +2,7 @@
 ### A simple TUI/CLI tool for organising parts, tools, and materials in shop or home
 
 [![crates.io](https://img.shields.io/crates/v/pinv.svg)](https://crates.io/crates/pinv)
-[![MIT licensed](https://img.shields.io/badge/license-GPL--3.0-green.svg)](./COPYING)
+[![GPL-3.0 License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](./COPYING)
 
 As a fairly unorganized electronics hoarder myself,
 I have been long plagued with boxes of unused electronics and parts sitting around my room.
@@ -49,6 +49,7 @@ You also have access to the entry view modes
  - `-` - take mode
  - `m` - modify mode
  - `p` - fill svg template mode
+ - `y` - yank entry mode
 
 Additionally, you can **delete an entry by pressing "Del"**, **clear last applied
 constraint by pressing "c"**, **clear all constraints by pressing "C"**, or
@@ -121,7 +122,7 @@ You are presented with all the fields of the entry filled out with what they cur
 and you can change them to what you wish them to be. You can also clear a field and
 make it "NULL" by simply turning it blank
 
-Once you've modified the fields desired simply select the modfiy button.
+Once you've modified the fields desired simply select the modify button.
 
 #### Fill Template Mode
 In this mode you are presented with a dialog which allows you to create a printable
@@ -130,6 +131,12 @@ Simply select the template you want and specify the name of the file you wish to
 Note that the only supported output file type is SVG
 
 Once everything is filled out you can select the fill template button.
+
+#### Yank Entry Mode
+This mode is similar to add entry mode except all the fields are filled out
+with the fields of the selected entry, minus the key which must be provided.
+This is useful if you are adding a lot of similar items, like many different
+lengths of M3 screws for example.
 
 ### CLI
 
