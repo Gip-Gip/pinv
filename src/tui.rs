@@ -843,7 +843,7 @@ impl Tui {
         // Grab the cache
         let mut cache = cursive.user_data::<TuiCache>().unwrap();
 
-        // Get the entry to give or take from
+        // Get the entry
         let entry = match list_view.selection() {
             Some(entry) => entry,
             None => {
@@ -1352,6 +1352,7 @@ impl Tui {
             .on_edit(move |cursive, string, _| {
                 Self::give_take_dialog_update(cursive, string, give);
             })
+            .on_submit(move |cursive, _| Self::give_take_dialog_submit(cursive, give))
             .with_name(TUI_MOD_FIELD_EDIT)
             .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
