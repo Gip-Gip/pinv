@@ -30,6 +30,7 @@ use std::error::Error;
 use std::fs;
 use std::io::stdin;
 use std::io::Read;
+use std::sync::Arc;
 
 fn confirm() -> bool {
     println!("Confirm?(y/n)");
@@ -64,13 +65,15 @@ fn split_field(field: &str) -> Result<(String, String), Box<dyn Error>> {
 
 /// Probably going to redo this in the near future, but it sorta works for now
 fn main() {
-    let mut db = Db::init();
-
     // To be re-written...
     let matches = command!()
         .propagate_version(true)
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .args([
+            arg!(-d --database <DATABASE> "Specify another directory to use for the database")
+                .required(false),
+        ])
         .subcommand(
             // TUI Subcommand
             Command::new("tui").about("Enter TUI mode"),
@@ -172,6 +175,13 @@ fn main() {
             Command::new("list_builtin_templates").about("List all builtin label templates"),
         )
         .get_matches();
+
+    let path = match matches.get_one::<String>("database") {
+        None => None,
+        Some(path) => Some(Arc::<str>::from(path.to_string())),
+    };
+
+    let mut db = Db::init(path);
 
     match matches.subcommand() {
         // TUI Subcommand

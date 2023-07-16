@@ -289,7 +289,7 @@ impl Tui {
         view.set_on_event(Event::Char('m'), |cursive| {
             Self::push_layer(cursive, Self::mod_entry_dialog)
         });
-        
+
         // Bind y to yank_entry mode
         view.set_on_event(Event::Char('y'), |cursive| {
             Self::push_layer(cursive, Self::yank_entry_dialog)
@@ -1017,8 +1017,9 @@ impl Tui {
 
         cache.edited_ids.clear();
 
-        let dialog = Dialog::around(layout)
-            .button("Yank & Add!", |cursive| Self::yank_entry_dialog_submit(cursive));
+        let dialog = Dialog::around(layout).button("Yank & Add!", |cursive| {
+            Self::yank_entry_dialog_submit(cursive)
+        });
 
         // Prime the default dialog bindings
         let mut dialog = OnEventView::new(dialog);
@@ -1067,7 +1068,7 @@ impl Tui {
 
             fields.push(field);
         }
- 
+
         // Create the entry from the aquired fields
         // This is ugly
         let key = match b64::to_u64(
@@ -1124,14 +1125,16 @@ impl Tui {
 
         // Add the original entry fields that weren't edited
         entry.add_fields(
-            &original_entry.fields
+            &original_entry
+                .fields
                 .clone()
                 .into_iter()
-                .filter(move |field| {
-                    ! match fields_copy.iter().find(move |new_field| {&field == new_field}) {
-                        Some(_) => true,
-                        None => false,
-                    }
+                .filter(move |field| !match fields_copy
+                    .iter()
+                    .find(move |new_field| &field == new_field)
+                {
+                    Some(_) => true,
+                    None => false,
                 })
                 .collect::<Vec<EntryField>>(),
         );

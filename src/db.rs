@@ -25,6 +25,8 @@ use regex::Regex;
 use rusqlite::Error as SqlError;
 use rusqlite::{types::ValueRef, Connection, OptionalExtension};
 use simple_error::bail;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::{cmp, error::Error, fs};
 
 /// Datatypes in PINV
@@ -426,16 +428,20 @@ pub struct Db {
 
 impl Db {
     /// Initialize the pinv database. The database file is located in the
-    /// current user's home data folder.
-    pub fn init() -> Self {
-        let qualifier = "org";
-        let organisation = "Open Ape Shop";
-        let application = "pinv";
+    /// current user's home data folder, or in a path specified.
+    pub fn init(path: Option<Arc<str>>) -> Self {
+        let data_dir = match path {
+            None => {
+                let qualifier = "org";
+                let organisation = "Open Ape Shop";
+                let application = "pinv";
 
-        // Get the home data directories depending on the system
-        let dirs = ProjectDirs::from(qualifier, organisation, application).unwrap();
-
-        let data_dir = dirs.data_dir().to_owned();
+                // Get the home data directories depending on the system
+                let dirs = ProjectDirs::from(qualifier, organisation, application).unwrap();
+                dirs.data_dir().to_owned()
+            }
+            Some(path) => PathBuf::from(path.to_string()),
+        };
 
         // Create the path to the datafile
         let mut db_filepath = data_dir.clone();

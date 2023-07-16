@@ -35,13 +35,13 @@ impl Template {
     }
 }
 
-pub static TEMPLATES: [Template; 1] = [
+pub static TEMPLATES: [Template; 2] = [
     Template {
         id: "Avery 5160",
         data_compressed: include_bytes!("../templates/avery_5160.svg.gz"),
     },
-    Template{
+    Template {
         id: "Avery 5195",
         data_compressed: include_bytes!("../templates/avery_5195.svg.gz"),
-    }
+    },
 ];
