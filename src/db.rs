@@ -776,7 +776,9 @@ impl Db {
     /// Get the next unused key in the database
     pub fn grab_next_available_key(&self, key: u64) -> Result<u64, Box<dyn Error>> {
         // Prepare a statement where the key provided is seached for in the
-        // key table
+        // key table.
+        //
+        // !TODO! Can be optimised.
         let mut statement = self
             .connection
             .prepare("SELECT KEY FROM KEYS WHERE KEY = ?")?;

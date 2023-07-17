@@ -697,15 +697,24 @@ impl Tui {
         }
 
         for (i, field) in fields.iter().enumerate() {
-            let field_id = format!("{}:", field);
-            let field_id = TextView::new(format!("{:<width$}", field_id, width = max_size + 2));
+            let field_id_str = format!("{}:", field);
+            let field_id = TextView::new(format!(
+                "{:<width$}",
+                field_id_str.clone(),
+                width = max_size + 2
+            ));
 
-            let field_entry = EditView::new()
-                .on_edit(move |cursive, _, _| {
-                    let cache = cursive.user_data::<TuiCache>().unwrap();
+            let mut field_entry = EditView::new().on_edit(move |cursive, _, _| {
+                let cache = cursive.user_data::<TuiCache>().unwrap();
 
-                    cache.edited_ids.push(i);
-                })
+                cache.edited_ids.push(i);
+            });
+
+            if field_id_str == "KEY:" {
+                field_entry.set_content(b64::from_u64(cache.db.grab_next_available_key(0)?));
+            }
+
+            let field_entry = field_entry
                 .with_name(format!("{}{}", TUI_MOD_FIELD_EDIT, i))
                 .fixed_width(TUI_FIELD_ENTRY_WIDTH);
 
