@@ -707,11 +707,18 @@ impl Tui {
             let mut field_entry = EditView::new().on_edit(move |cursive, _, _| {
                 let cache = cursive.user_data::<TuiCache>().unwrap();
 
-                cache.edited_ids.push(i);
+                // If the id hasn't been edited it, add it to the list of edited ids
+                if !cache.edited_ids.contains(&i)
+                {
+                    cache.edited_ids.push(i);
+                }
             });
 
             if field_id_str == "KEY:" {
                 field_entry.set_content(b64::from_u64(cache.db.grab_next_available_key(0)?));
+                
+                // Since we are pre-adding the key, the key has technically ben pre-edited.
+                cache.edited_ids.push(i);
             }
 
             let field_entry = field_entry

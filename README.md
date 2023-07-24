@@ -20,6 +20,14 @@ by a simple programming error.
 
 ## Usage
 
+### Command Line Arguments
+
+The following command line arguments work for any subcommand of pinv
+
+ - `-d <DATABASE>` or `--database <DATABASE>` - specify an alternate directory to use for your database
+ - `-v` or `--version` - display the version of pinv
+ - `-h` or `--help` - display the help message
+
 ### TUI
 
 The TUI is started by running pinv with the "tui" subcommand, as follows
